@@ -48,7 +48,10 @@ class AuthController {
   // ── NEW: Step 1 — request OTP sent to email ────────────────────────────────
   async forgotPassword(req, res) {
     const result = await authService.forgotPassword(req.body.email);
-    return sendSuccess(res, { message: result.message });
+    return sendSuccess(res, {
+      message: result.message,
+      ...(result.devOtp && { data: { devOtp: result.devOtp } }),
+    });
   }
 
   // ── NEW: Step 2 — verify OTP and set new password ─────────────────────────
