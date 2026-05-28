@@ -19,6 +19,20 @@ class VisitorService {
   async createInvite(data, residentUser) {
     const societyId = this._getSocietyId(residentUser);
 
+    // GAP-5 FIX: Validate expectedAt is in the future (at least 15 min from now)
+    if (data.expectedAt) {
+      const expectedDate = new Date(data.expectedAt);
+      const minAllowed = new Date(Date.now() + 15 * 60 * 1000); // 15 min from now
+      if (isNaN(expectedDate.getTime())) {
+        throw AppError.badRequest("expectedAt must be a valid date.");
+      }
+      if (expectedDate < minAllowed) {
+        throw AppError.badRequest(
+          "Expected arrival must be at least 15 minutes in the future."
+        );
+      }
+    }
+
     const visitor = new (require("../models/visitor.model"))({
       ...data,
       society: societyId,
@@ -40,6 +54,38 @@ class VisitorService {
     await visitor.save();
 
     return { visitor, otp: plainOTP }; // OTP shown once to resident to forward to visitor
+  }
+
+  // ─── Resident: Cancel a Pre-Approved Invite ────────────────────────────────
+
+  /**
+   * GAP-5 FIX: Resident cancels their own pre-approved invite before the visitor arrives.
+   * Only allowed when status is "invited" (visitor hasn't entered yet).
+   * Sets status → "expired" and clears the OTP hash to invalidate the code.
+   */
+  async cancelInvite(visitorId, residentUser) {
+    const visitor = await visitorRepository.findById(visitorId);
+    if (!visitor) throw AppError.notFound("Visitor record not found.");
+
+    // Must own this invite
+    const hostId = visitor.host?._id?.toString() || visitor.host?.toString();
+    if (hostId !== residentUser._id.toString()) {
+      throw AppError.forbidden("You can only cancel your own invites.");
+    }
+
+    // Only cancellable when still in invited state
+    if (visitor.status !== "invited") {
+      throw AppError.badRequest(
+        `Cannot cancel — invite is already '${visitor.status}'. ` +
+        `Only active (invited) invites can be cancelled.`
+      );
+    }
+
+    return visitorRepository.updateById(visitorId, {
+      status: "expired",
+      entryOTPHash: null,
+      entryOTPExpires: null,
+    });
   }
 
   // ─── Security: Log Walk-in Visitor ────────────────────────────────────────

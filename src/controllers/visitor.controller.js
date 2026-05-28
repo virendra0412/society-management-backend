@@ -12,6 +12,20 @@ class VisitorController {
     });
   }
 
+  // ── Resident: Cancel a pre-approved invite (GAP-5 FIX) ───────────────────
+  /**
+   * Allows the resident who created an invite to cancel it before the visitor
+   * arrives. Invalidates the OTP and marks the record as expired so security
+   * will not grant entry even if the visitor tries their old code.
+   */
+  async cancelInvite(req, res) {
+    const visitor = await visitorService.cancelInvite(req.params.id, req.user);
+    return sendSuccess(res, {
+      message: "Invite cancelled. The visitor's OTP has been invalidated.",
+      data: { visitor },
+    });
+  }
+
   // ── Security: Log a walk-in visitor ──────────────────────────────────────
   async logWalkIn(req, res) {
     const visitor = await visitorService.logWalkIn(req.body, req.user);

@@ -41,6 +41,15 @@ router.patch(
   visitorController.rejectWalkIn
 );
 
+// GAP-5 FIX: Resident cancels their own pre-approved invite
+// Sets status → "expired" and clears the OTP hash so the visitor's code is dead.
+// Only works while status is still "invited" (visitor hasn't arrived yet).
+router.patch(
+  "/:id/cancel",
+  requireRole("resident", "admin"),
+  visitorController.cancelInvite
+);
+
 // ── Security / Admin Routes ────────────────────────────────────────────────────
 
 // Security logs a walk-in visitor (no prior invite)

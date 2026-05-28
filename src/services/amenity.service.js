@@ -54,8 +54,25 @@ class AmenityService {
   // ─── Slot Availability ─────────────────────────────────────────────────────
 
   /**
-   * Return booked slots for an amenity on a given date,
-   * plus whether the amenity is open that day.
+   * GAP-6 FIX — Operating Hours Enforcement in UI
+   *
+   * Generates a full slot grid between openTime and closeTime for the requested
+   * date and each duration in slotDurationOptions.  Each slot is marked
+   * `available: true/false` based on whether the concurrent booking limit would
+   * be exceeded, using the existing bookings for that day (single DB call).
+   *
+   * Response shape:
+   * {
+   *   date, isOpen, openTime, closeTime, dayName,
+   *   closedReason?,          // human-readable if isOpen === false
+   *   slots: [
+   *     { startTime, endTime, durationMinutes, available, bookedCount }
+   *   ]
+   * }
+   *
+   * The frontend (AmenityScreen BookSlotModal) already consumes:
+   *   res.data.slots[] with slot.startTime, slot.endTime, slot.available,
+   *   slot.durationMinutes, and res.data.isOpen / res.data.openTime / closeTime.
    */
   async getAvailability(amenityId, dateStr, societyId) {
     const amenity = await amenityRepository.findAmenityById(amenityId);
@@ -65,25 +82,80 @@ class AmenityService {
     const date = new Date(dateStr);
     if (isNaN(date)) throw AppError.badRequest("Invalid date format. Use YYYY-MM-DD.");
 
+    const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
     const dayOfWeek = date.getDay();
     const isClosed  = amenity.closedDays.includes(dayOfWeek);
 
-    const bookedSlots = isClosed
-      ? []
-      : await amenityRepository.findBookingsForDate(amenityId, date);
+    // Early return with empty slots + closed reason when amenity is shut
+    if (isClosed) {
+      return {
+        date,
+        isOpen:       false,
+        openTime:     amenity.openTime,
+        closeTime:    amenity.closeTime,
+        dayName:      DAY_NAMES[dayOfWeek],
+        closedReason: `${amenity.name} is closed on ${DAY_NAMES[dayOfWeek]}s.`,
+        slots:        [],
+      };
+    }
+
+    // Fetch all existing confirmed/pending bookings for the day — single DB call
+    const existingBookings = await amenityRepository.findBookingsForDate(amenityId, date);
+
+    // Parse operating window in minutes-since-midnight
+    const [openH,  openM]  = amenity.openTime.split(":").map(Number);
+    const [closeH, closeM] = amenity.closeTime.split(":").map(Number);
+    const openMins  = openH  * 60 + openM;
+    const closeMins = closeH * 60 + closeM;
+
+    // Build date helpers
+    const toDate = (minutesSinceMidnight) => {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      d.setMinutes(minutesSinceMidnight);
+      return d;
+    };
+
+    const now = new Date();
+
+    // Generate slots for each duration option and deduplicate by startTime+duration
+    const slots = [];
+
+    for (const durationMins of amenity.slotDurationOptions) {
+      let cursor = openMins;
+      while (cursor + durationMins <= closeMins) {
+        const slotStart = toDate(cursor);
+        const slotEnd   = toDate(cursor + durationMins);
+
+        // Count existing bookings that overlap this window
+        const bookedCount = existingBookings.filter(
+          (b) => b.startTime < slotEnd && b.endTime > slotStart
+        ).length;
+
+        slots.push({
+          startTime:       slotStart,
+          endTime:         slotEnd,
+          durationMinutes: durationMins,
+          available:       slotStart > now && bookedCount < amenity.maxConcurrentBookings,
+          bookedCount,
+        });
+
+        cursor += durationMins;
+      }
+    }
+
+    // Sort by startTime then duration for consistent display
+    slots.sort((a, b) =>
+      a.startTime - b.startTime || a.durationMinutes - b.durationMinutes
+    );
 
     return {
-      date:                   dateStr,
-      isOpen:                 !isClosed,
-      openTime:               amenity.openTime,
-      closeTime:              amenity.closeTime,
-      maxConcurrentBookings:  amenity.maxConcurrentBookings,
-      slotDurationOptions:    amenity.slotDurationOptions,
-      bookedSlots:            bookedSlots.map(b => ({
-        startTime:  b.startTime,
-        endTime:    b.endTime,
-        status:     b.status,
-      })),
+      date:      dateStr,
+      isOpen:    true,
+      openTime:  amenity.openTime,
+      closeTime: amenity.closeTime,
+      dayName:   DAY_NAMES[dayOfWeek],
+      slots,
     };
   }
 
