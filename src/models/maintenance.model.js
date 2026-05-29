@@ -222,21 +222,36 @@ maintenanceBillSchema.index({ society: 1, isPublished: 1 });
 maintenanceBillSchema.index({ "payments.status": 1, "payments.lastReminderAt": 1 });
 
 // ─── Virtuals ─────────────────────────────────────────────────────────────────
+//
+// BUG FIX: all virtuals previously assumed `this.payments` is always an array.
+// When a query uses `.select("-payments")` to exclude the sub-array for
+// performance, Mongoose does NOT initialise the field to the schema default ([]).
+// The field is simply absent, so `this.payments` is `undefined`, causing
+// TypeError: Cannot read property 'length'/'filter'/'reduce' of undefined → 500.
+//
+// Fix: coerce to empty array with `|| []` so virtuals always return a safe
+// zero-value when payments are not loaded (e.g. in list queries).
+//
 maintenanceBillSchema.virtual("totalFlats").get(function () {
-  return this.payments.length;
+  return (this.payments || []).length;
 });
 
 maintenanceBillSchema.virtual("paidCount").get(function () {
-  return this.payments.filter((p) => p.status === "paid" || p.status === "waived").length;
+  return (this.payments || []).filter(
+    (p) => p.status === "paid" || p.status === "waived"
+  ).length;
 });
 
 maintenanceBillSchema.virtual("unpaidCount").get(function () {
-  return this.payments.filter((p) => p.status === "unpaid" || p.status === "overdue").length;
+  return (this.payments || []).filter(
+    (p) => p.status === "unpaid" || p.status === "overdue"
+  ).length;
 });
 
 maintenanceBillSchema.virtual("collectionSummary").get(function () {
-  const total = this.payments.reduce((s, p) => s + (p.totalDue || 0), 0);
-  const collected = this.payments.reduce((s, p) => s + (p.paidAmount || 0), 0);
+  const payments = this.payments || [];
+  const total     = payments.reduce((s, p) => s + (p.totalDue   || 0), 0);
+  const collected = payments.reduce((s, p) => s + (p.paidAmount || 0), 0);
   return { total, collected, pending: total - collected };
 });
 

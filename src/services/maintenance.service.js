@@ -186,7 +186,23 @@ class MaintenanceService {
 
   // ─── Listing ───────────────────────────────────────────────────────────────
 
-  async getAllBills(societyId, query, isAdmin = false) {
+  /**
+   * List all bills for a society.
+   *
+   * BUG FIX (500): previously accepted only an `isAdmin` boolean.
+   * Now accepts the full `requestingUser` so it can:
+   *   1. Correctly determine admin vs resident role.
+   *   2. Scope each bill's `payments` array to the calling resident's own
+   *      record (Gap-1 fix) — prevents exposing other flats' payment data
+   *      and ensures the `collectionSummary` virtual reflects only the
+   *      resident's dues, not the society-wide totals.
+   *
+   * @param {ObjectId} societyId
+   * @param {object}   query            - req.query (page, limit, billMonth, …)
+   * @param {object}   requestingUser   - full req.user doc
+   */
+  async getAllBills(societyId, query, requestingUser) {
+    const isAdmin = requestingUser.role === "admin";
     const { page, limit, skip } = parsePagination(query);
     const filters = {};
 
@@ -201,6 +217,35 @@ class MaintenanceService {
       filters,
       { skip, limit }
     );
+
+    // Gap-1 fix: scope each bill's payments to just the resident's own record.
+    // Admins see all payments unchanged.
+    if (!isAdmin) {
+      const residentId = requestingUser._id.toString();
+      const scopedBills = bills.map((bill) => {
+        // toJSON() triggers virtuals — call it first so we get the full
+        // virtual set, then override payments with the scoped record.
+        const billObj = bill.toJSON ? bill.toJSON() : { ...bill };
+        const myPayment = (bill.payments || []).find(
+          (p) => p.resident?.toString() === residentId
+        );
+        billObj.payments = myPayment ? [myPayment] : [];
+        // Re-compute summary virtuals with scoped payments so the card shows
+        // the resident's own amount due, not the society-wide total.
+        const p = myPayment || {};
+        billObj.totalFlats       = myPayment ? 1 : 0;
+        billObj.paidCount        = p.status === "paid" || p.status === "waived" ? 1 : 0;
+        billObj.unpaidCount      = p.status === "unpaid" || p.status === "overdue" ? 1 : 0;
+        billObj.collectionSummary = {
+          total:     p.totalDue    || 0,
+          collected: p.paidAmount  || 0,
+          pending:   (p.totalDue   || 0) - (p.paidAmount || 0),
+        };
+        return billObj;
+      });
+      return { bills: scopedBills, meta: buildPaginationMeta({ total, page, limit }) };
+    }
+
     return { bills, meta: buildPaginationMeta({ total, page, limit }) };
   }
 

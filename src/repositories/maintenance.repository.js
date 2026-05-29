@@ -14,13 +14,25 @@ class MaintenanceRepository {
   }
 
   /**
-   * List bills for a society without the full payments array (for list views).
+   * List bills for a society.
+   *
+   * BUG FIX: the previous version used .select("-payments") to avoid loading
+   * the sub-array. However the model's toJSON has `virtuals: true`, and all
+   * four virtuals (totalFlats, paidCount, unpaidCount, collectionSummary)
+   * iterate over `this.payments`. When excluded, `this.payments` is `undefined`
+   * (Mongoose does NOT apply schema defaults to projected-out fields), causing
+   * a TypeError → 500 on every list request.
+   *
+   * Fix: include the payments array so virtuals compute correctly.
+   * The list is paginated (default 20 bills) and societies are typically
+   * small enough that this is fine. If scale becomes a concern, replace
+   * with an aggregation pipeline that computes stats server-side and then
+   * projects payments out of the response.
    */
   async findBillsBySociety(societyId, filters = {}, { skip, limit }) {
     const query = { society: societyId, ...filters };
     const [bills, total] = await Promise.all([
       MaintenanceBill.find(query)
-        .select("-payments")        // exclude heavy sub-array in list
         .populate("createdBy", "name role")
         .sort({ dueDate: -1 })
         .skip(skip)

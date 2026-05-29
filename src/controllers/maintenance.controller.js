@@ -78,11 +78,12 @@ class MaintenanceController {
 
   // ── Both: List bills ──────────────────────────────────────────────────────
   async getAllBills(req, res) {
-    const isAdmin = req.user.role === "admin";
+    // BUG FIX: pass full req.user (not just isAdmin boolean) so the service
+    // can scope payments per resident and compute correct virtual stats.
     const { bills, meta } = await maintenanceService.getAllBills(
       req.societyId,
       req.query,
-      isAdmin
+      req.user          // ← was: req.user.role === "admin"
     );
     return sendSuccess(res, { data: { bills }, meta });
   }
