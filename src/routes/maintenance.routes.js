@@ -16,6 +16,13 @@ router.get(
   maintenanceController.getMyPayments
 );
 
+// ── Admin: Defaulter list ─────────────────────────────────────────────────────
+router.get(
+  "/defaulters",
+  requireRole("admin"),
+  maintenanceController.getDefaulters
+);
+
 // ── Both: List and get bills ──────────────────────────────────────────────────
 router.get("/", maintenanceController.getAllBills);
 router.get("/:id", maintenanceController.getBillById);

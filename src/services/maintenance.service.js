@@ -286,6 +286,14 @@ class MaintenanceService {
     );
     return records;
   }
+
+  /**
+   * Admin: get outstanding defaulters across all published bills.
+   */
+  async getDefaulters(societyId, query) {
+    const { page, limit, skip } = parsePagination(query);
+    return maintenanceRepository.findDefaultersBySociety(societyId, { skip, limit });
+  }
 }
 
 module.exports = new MaintenanceService();

@@ -103,6 +103,62 @@ class MaintenanceRepository {
     return MaintenanceBill.aggregate(pipeline).exec();
   }
 
+  async findDefaultersBySociety(societyId, { skip, limit }) {
+    return MaintenanceBill.aggregate([
+      { $match: { society: societyId, isPublished: true, "payments.status": { $in: ["unpaid", "overdue"] } } },
+      { $unwind: "$payments" },
+      { $match: { "payments.status": { $in: ["unpaid", "overdue"] } } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "payments.resident",
+          foreignField: "_id",
+          as: "resident",
+        },
+      },
+      { $unwind: { path: "$resident", preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: "$payments.resident",
+          flat: { $first: "$payments.flat" },
+          wing: { $first: "$payments.wing" },
+          resident: { $first: "$resident" },
+          records: {
+            $push: {
+              _id: "$payments._id",
+              status: "$payments.status",
+              amount: "$payments.amount",
+              penalty: "$payments.penalty",
+              discount: "$payments.discount",
+              totalDue: "$payments.totalDue",
+              bill: {
+                _id: "$_id",
+                title: "$title",
+                billMonth: "$billMonth",
+                dueDate: "$dueDate",
+              },
+            },
+          },
+        },
+      },
+      { $sort: { "flat": 1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 1,
+          flat: 1,
+          wing: 1,
+          resident: {
+            _id: "$resident._id",
+            name: "$resident.name",
+          },
+          records: 1,
+        },
+      },
+    ]).exec();
+  }
+
   /**
    * Update a specific payment record inside a bill (by payment sub-doc _id).
    */

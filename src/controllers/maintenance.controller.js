@@ -76,6 +76,12 @@ class MaintenanceController {
     });
   }
 
+  // ── Admin: Defaulter list ───────────────────────────────────────────────────
+  async getDefaulters(req, res) {
+    const defaulters = await maintenanceService.getDefaulters(req.societyId, req.query);
+    return sendSuccess(res, { data: { defaulters } });
+  }
+
   // ── Both: List bills ──────────────────────────────────────────────────────
   async getAllBills(req, res) {
     // BUG FIX: pass full req.user (not just isAdmin boolean) so the service
