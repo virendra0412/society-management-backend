@@ -146,6 +146,11 @@ const eventSchema = new mongoose.Schema(
       maxlength: [300, "Reason too long"],
       default: null,
     },
+    // FIX: frontend sends isAllDay — store it so it round-trips correctly
+    isAllDay: {
+      type: Boolean,
+      default: false,
+    },
     // Reminder notification sent flag (set by cron job)
     reminderSent: {
       type: Boolean,
@@ -171,6 +176,14 @@ const eventSchema = new mongoose.Schema(
   }
 );
 
+// Ensure legacy or partially hydrated event docs always have an RSVP array.
+// This prevents virtual getters from failing when `rsvps` is absent in the DB.
+eventSchema.pre("init", function (doc) {
+  if (!doc.rsvps) {
+    doc.rsvps = [];
+  }
+});
+
 // ─── Indexes ──────────────────────────────────────────────────────────────────
 eventSchema.index({ society: 1, startTime: 1, isPublished: 1 });
 eventSchema.index({ society: 1, isCancelled: 1 });
@@ -183,18 +196,35 @@ eventSchema.index({
 });
 
 // ─── Virtuals ─────────────────────────────────────────────────────────────────
+//
+// BUG FIX: the event repository used .select("-rsvps") in list queries.
+// Mongoose does NOT initialise excluded fields from schema defaults, so
+// `this.rsvps` was `undefined`. All three virtuals below called .filter()/.reduce()
+// on it → TypeError → 500 on every list request that returned ≥1 document.
+//
+// Fix A: guard each virtual with `|| []`.
+// Fix B: remove .select("-rsvps") in the repository (done in event.repository.js)
+//        so the virtuals always have data to work with.
+//
+// FIELD MISMATCH FIX: the frontend uses different field names than the backend
+// model (eventDate vs startTime, endDate vs endTime, maxAttendees vs capacity,
+// rsvpSummary vs rsvpCounts). Alias virtuals below let the backend return both
+// names so the frontend works without modification.
+//
+
 eventSchema.virtual("goingCount").get(function () {
-  return this.rsvps
+  return (this.rsvps || [])
     .filter(r => r.status === "going")
     .reduce((sum, r) => sum + 1 + (r.guestCount || 0), 0);
 });
 
 eventSchema.virtual("rsvpCounts").get(function () {
+  const rsvps = this.rsvps || [];
   return {
-    going:     this.rsvps.filter(r => r.status === "going").length,
-    not_going: this.rsvps.filter(r => r.status === "not_going").length,
-    maybe:     this.rsvps.filter(r => r.status === "maybe").length,
-    total:     this.rsvps.length,
+    going:     rsvps.filter(r => r.status === "going").length,
+    not_going: rsvps.filter(r => r.status === "not_going").length,
+    maybe:     rsvps.filter(r => r.status === "maybe").length,
+    total:     rsvps.length,
   };
 });
 
@@ -204,6 +234,35 @@ eventSchema.virtual("isRsvpOpen").get(function () {
   if (this.rsvpDeadline && new Date() > this.rsvpDeadline) return false;
   if (new Date() > this.startTime) return false;
   return true;
+});
+
+// ── Frontend compatibility aliases ────────────────────────────────────────────
+// The frontend EventsScreen reads event.eventDate / event.endDate /
+// event.maxAttendees / event.rsvpSummary.  These virtuals expose the backend
+// model fields under those names so both old and new code works without a
+// frontend deploy.
+
+/** Alias for startTime — consumed by EventsScreen date display helpers. */
+eventSchema.virtual("eventDate").get(function () {
+  return this.startTime;
+});
+
+/** Alias for endTime — consumed by EventsScreen "Ends" detail row. */
+eventSchema.virtual("endDate").get(function () {
+  return this.endTime;
+});
+
+/** Alias for capacity — consumed by EventsScreen capacity badge. */
+eventSchema.virtual("maxAttendees").get(function () {
+  return this.capacity;
+});
+
+/**
+ * Alias for rsvpCounts — consumed by EventsScreen RsvpCounts component
+ * and the isFull capacity check.
+ */
+eventSchema.virtual("rsvpSummary").get(function () {
+  return this.rsvpCounts;
 });
 
 const Event = mongoose.model("Event", eventSchema);

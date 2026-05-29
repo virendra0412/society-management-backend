@@ -173,28 +173,59 @@ const { EVENT_CATEGORIES, RSVP_STATUSES } = require("../models/event.model");
 
 const event = {
 
+  /**
+   * Create event validator.
+   *
+   * FIELD MISMATCH FIX: the frontend EventsScreen sends eventDate / endDate /
+   * maxAttendees / isAllDay.  The backend model stores startTime / endTime /
+   * capacity / isAllDay.  The validator accepts EITHER name (Joi.alternatives)
+   * so both old API clients and the frontend form work.  The service layer
+   * (_normalizePayload) then maps the frontend names to model fields before
+   * hitting MongoDB.
+   */
   create: Joi.object({
     title:        Joi.string().min(3).max(150).trim().required(),
     description:  Joi.string().max(3000).trim().optional().allow(""),
     category:     Joi.string().valid(...EVENT_CATEGORIES).default("Other"),
-    startTime:    Joi.date().iso().min("now").required().messages({ "date.min": "Event start must be in the future" }),
-    endTime:      Joi.date().iso().greater(Joi.ref("startTime")).required().messages({ "date.greater": "End time must be after start time" }),
+
+    // Accept startTime OR eventDate (frontend alias)
+    startTime: Joi.date().iso().min("now")
+      .messages({ "date.min": "Event start must be in the future" }),
+    eventDate: Joi.date().iso()
+      .messages({ "date.min": "Event start must be in the future" }),
+
+    // Accept endTime OR endDate (frontend alias)
+    endTime:  Joi.date().iso(),
+    endDate:  Joi.date().iso(),
+
     venue:        Joi.string().max(200).trim().optional().allow(""),
+    isAllDay:     Joi.boolean().default(false),
     rsvpEnabled:  Joi.boolean().default(true),
     rsvpDeadline: Joi.date().iso().optional(),
+
+    // Accept capacity OR maxAttendees (frontend alias)
     capacity:     Joi.number().integer().min(1).optional(),
-  }),
+    maxAttendees: Joi.number().integer().min(1).optional(),
+
+    // frontend sends rules but model uses description; strip silently in service
+    rules: Joi.string().max(2000).trim().optional().allow(""),
+  }).or("startTime", "eventDate"),  // at least one date field is required
 
   update: Joi.object({
     title:        Joi.string().min(3).max(150).trim(),
     description:  Joi.string().max(3000).trim().allow(""),
     category:     Joi.string().valid(...EVENT_CATEGORIES),
     startTime:    Joi.date().iso(),
+    eventDate:    Joi.date().iso(),
     endTime:      Joi.date().iso(),
+    endDate:      Joi.date().iso(),
     venue:        Joi.string().max(200).trim().allow(""),
+    isAllDay:     Joi.boolean(),
     rsvpEnabled:  Joi.boolean(),
     rsvpDeadline: Joi.date().iso(),
     capacity:     Joi.number().integer().min(1),
+    maxAttendees: Joi.number().integer().min(1),
+    rules:        Joi.string().max(2000).trim().allow(""),
   }).min(1),
 
   cancel: Joi.object({

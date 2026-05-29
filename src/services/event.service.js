@@ -11,9 +11,36 @@ class EventService {
 
   // ─── Admin: Event CRUD ─────────────────────────────────────────────────────
 
+  /**
+   * Normalize frontend field names → backend model fields.
+   * The EventsScreen sends: eventDate, endDate, maxAttendees, isAllDay.
+   * The model stores:       startTime, endTime, capacity, isAllDay.
+   */
+  _normalizePayload(data) {
+    const out = { ...data };
+    // eventDate → startTime
+    if (out.eventDate !== undefined) {
+      out.startTime = out.eventDate;
+      delete out.eventDate;
+    }
+    // endDate → endTime
+    if (out.endDate !== undefined) {
+      out.endTime = out.endDate;
+      delete out.endDate;
+    }
+    // maxAttendees → capacity
+    if (out.maxAttendees !== undefined) {
+      out.capacity = out.maxAttendees;
+      delete out.maxAttendees;
+    }
+    // strip unknown fields the frontend may send that the model doesn't have
+    delete out.rules;        // frontend sends rules; model uses description
+    return out;
+  }
+
   async createEvent(data, adminUser) {
     return eventRepository.create({
-      ...data,
+      ...this._normalizePayload(data),
       society:   this._getSocietyId(adminUser),
       createdBy: adminUser._id,
     });
@@ -27,12 +54,14 @@ class EventService {
     }
     if (event.isCancelled) throw AppError.badRequest("Cannot edit a cancelled event.");
 
+    const normalized = this._normalizePayload(updates);
+
     // Prevent changing startTime to the past
-    if (updates.startTime && new Date(updates.startTime) <= new Date()) {
+    if (normalized.startTime && new Date(normalized.startTime) <= new Date()) {
       throw AppError.badRequest("Event start time cannot be in the past.");
     }
 
-    return eventRepository.updateById(eventId, updates);
+    return eventRepository.updateById(eventId, normalized);
   }
 
   // ─── Admin: Publish event → notify all residents ───────────────────────────
@@ -183,18 +212,29 @@ class EventService {
     const { page, limit, skip } = parsePagination(query);
     const filters = {};
 
-    // Residents only see published, non-cancelled upcoming events by default
+    // Residents only see published, non-cancelled events by default
     if (!isAdmin) {
-      filters.isPublished  = true;
-      filters.isCancelled  = false;
+      filters.isPublished = true;
+      filters.isCancelled = false;
     }
-    if (query.category)    filters.category    = query.category;
+    if (query.category)               filters.category    = query.category;
     if (query.isCancelled !== undefined) filters.isCancelled = query.isCancelled === "true";
-    // Upcoming vs past
-    if (query.upcoming === "true")  filters.startTime = { $gte: new Date() };
-    if (query.past     === "true")  filters.startTime = { $lt:  new Date() };
+    if (query.upcoming === "true")    filters.startTime   = { $gte: new Date() };
+    if (query.past     === "true")    filters.startTime   = { $lt:  new Date() };
 
-    const { events, total } = await eventRepository.findBySociety(societyId, filters, { skip, limit });
+    // Sort: the frontend sends sort=eventDate; map to the actual field startTime.
+    // Support "-" prefix for descending (e.g. sort=-eventDate or sort=-startTime).
+    const rawSort   = query.sort || "startTime";
+    const descending = rawSort.startsWith("-");
+    const sortKey    = rawSort.replace(/^-/, "");
+    // Map frontend alias → real model field
+    const SORT_MAP  = { eventDate: "startTime", endDate: "endTime", maxAttendees: "capacity" };
+    const sortField = SORT_MAP[sortKey] || sortKey;
+    const sortOrder = descending ? -1 : 1;
+
+    const { events, total } = await eventRepository.findBySociety(
+      societyId, filters, { skip, limit, sortField, sortOrder }
+    );
     return { events, meta: buildPaginationMeta({ total, page, limit }) };
   }
 

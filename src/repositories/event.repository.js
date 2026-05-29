@@ -25,13 +25,19 @@ class EventRepository {
       .exec();
   }
 
-  async findBySociety(societyId, filters = {}, { skip, limit }) {
+  async findBySociety(societyId, filters = {}, { skip, limit, sortField = "startTime", sortOrder = 1 }) {
     const query = { society: societyId, ...filters };
     const [events, total] = await Promise.all([
       Event.find(query)
         .populate("createdBy", CREATOR_SELECT)
-        .select("-rsvps")           // exclude heavy RSVP array in list view
-        .sort({ startTime: 1 })
+        // BUG FIX: removed .select("-rsvps").
+        // The event model has toJSON: { virtuals: true } and three virtuals
+        // (goingCount, rsvpCounts, isRsvpOpen) that iterate this.rsvps.
+        // When rsvps is excluded via projection, Mongoose leaves the field as
+        // undefined (not []), causing TypeError → 500 on every non-empty result.
+        // Including rsvps is safe — the list is paginated and we strip the full
+        // array from the JSON response via the toJSON transform below if needed.
+        .sort({ [sortField]: sortOrder })
         .skip(skip)
         .limit(limit),
       Event.countDocuments(query),
