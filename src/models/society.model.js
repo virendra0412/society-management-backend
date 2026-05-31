@@ -48,6 +48,34 @@ const societySchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+
+    // ── Super Admin fields (added for multi-society platform) ──────────────────
+    //
+    // approvalStatus: reflects where this society is in the onboarding pipeline.
+    //   "approved" is the default so that societies created via the old direct
+    //   path (seed / admin self-creation) continue to work without migration.
+    //
+    approvalStatus: {
+      type:    String,
+      enum:    ["pending", "approved", "rejected"],
+      default: "approved",
+      index:   true,
+    },
+
+    // Reference to the SocietyApplication that led to this society being created.
+    // Null for societies created via the old seed / direct flow.
+    application: {
+      type:    mongoose.Schema.Types.ObjectId,
+      ref:     "SocietyApplication",
+      default: null,
+    },
+
+    // Which super admin approved / created this society
+    registeredBy: {
+      type:    mongoose.Schema.Types.ObjectId,
+      ref:     "SuperAdmin",
+      default: null,
+    },
   },
   {
     timestamps: true,

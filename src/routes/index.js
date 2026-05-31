@@ -1,6 +1,9 @@
 const express = require("express");
 const router = express.Router();
 
+// ─── Super Admin Routes ─────────────────────────────────────────────────────
+const superAdminRoutes = require("./superAdmin.routes");
+
 // ─── Phase 1 Routes ───────────────────────────────────────────────────────────
 const authRoutes    = require("./auth.routes");
 const userRoutes    = require("./user.routes");
@@ -36,5 +39,9 @@ router.use("/maintenance", maintenanceRoutes);
 router.use("/amenities",   amenityRoutes);
 router.use("/events",      eventRoutes);
 router.use("/parking",     parkingRoutes);
+
+// Super Admin — multi-society platform management
+// All routes under /api/v1/superadmin
+router.use("/superadmin",  superAdminRoutes);
 
 module.exports = router;

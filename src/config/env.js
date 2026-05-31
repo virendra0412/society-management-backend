@@ -17,6 +17,14 @@ const envSchema = Joi.object({
 
   ALLOWED_ORIGINS: Joi.string().default("http://localhost:3000"),
   BCRYPT_SALT_ROUNDS: Joi.number().default(12),
+
+  // ── Super Admin JWT (separate from regular user JWT) ──────────────────────
+  // Must be at least 32 chars. Use a completely different secret from the
+  // regular JWT secrets so tokens are cryptographically isolated.
+  SUPER_ADMIN_JWT_SECRET:           Joi.string().min(32).required(),
+  SUPER_ADMIN_JWT_REFRESH_SECRET:   Joi.string().min(32).required(),
+  SUPER_ADMIN_JWT_EXPIRES_IN:       Joi.string().default("4h"),
+  SUPER_ADMIN_JWT_REFRESH_EXPIRES_IN: Joi.string().default("30d"),
   ESCALATION_THRESHOLD_HOURS: Joi.number().default(72),
 
   // ── Cloudinary (optional — uploads disabled if not set) ──────────────────
@@ -61,6 +69,14 @@ module.exports = {
   allowedOrigins: validatedEnv.ALLOWED_ORIGINS.split(",").map((o) => o.trim()),
   bcryptSaltRounds: validatedEnv.BCRYPT_SALT_ROUNDS,
   escalationThresholdHours: validatedEnv.ESCALATION_THRESHOLD_HOURS,
+
+  // Super Admin auth config
+  superAdmin: {
+    jwtSecret:          validatedEnv.SUPER_ADMIN_JWT_SECRET,
+    jwtRefreshSecret:   validatedEnv.SUPER_ADMIN_JWT_REFRESH_SECRET,
+    jwtExpiresIn:       validatedEnv.SUPER_ADMIN_JWT_EXPIRES_IN,
+    jwtRefreshExpiresIn: validatedEnv.SUPER_ADMIN_JWT_REFRESH_EXPIRES_IN,
+  },
 
   // ── NEW ──
   cloudinaryConfig: {
