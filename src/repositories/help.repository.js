@@ -16,17 +16,17 @@ class HelpRepository {
 
   async findBySociety(societyId, filters = {}, { skip, limit }, sort) {
     const query = { society: societyId, ...filters };
-    // Use aggregate so we can compute replyCount server-side without sending
+
+    // Use aggregate to compute replyCount server-side without sending
     // the full replies array to the client (which could be large).
     const [posts, total] = await Promise.all([
       Help.aggregate([
         { $match: query },
         { $addFields: { replyCount: { $size: { $ifNull: ["$replies", []] } } } },
-        { $project: { replies: 0 } },         // still exclude full replies array
+        { $project: { replies: 0 } },
         { $sort: sort || { createdAt: -1 } },
         { $skip: skip },
         { $limit: limit },
-        // Re-populate author via $lookup
         {
           $lookup: {
             from: "users",
@@ -36,10 +36,12 @@ class HelpRepository {
             as: "author",
           },
         },
-        { $unwind: { path: "$author", preserveNullAndEmpty: true } },
+        // FIX: preserveNullAndEmptyArrays is the correct MongoDB option name
+        { $unwind: { path: "$author", preserveNullAndEmptyArrays: true } },
       ]),
       Help.countDocuments(query),
     ]);
+
     return { posts, total };
   }
 
@@ -58,8 +60,11 @@ class HelpRepository {
     const reply = post?.replies?.id(replyId);
     if (!reply) return null;
 
-    const alreadyVoted = reply.upvotes.some((id) => id.toString() === userId.toString());
+    const alreadyVoted = reply.upvotes.some(
+      (id) => id.toString() === userId.toString()
+    );
     const op = alreadyVoted ? "$pull" : "$addToSet";
+
     return Help.findOneAndUpdate(
       { _id: helpId, "replies._id": replyId },
       { [op]: { "replies.$.upvotes": userId } },
@@ -67,7 +72,7 @@ class HelpRepository {
     ).exec();
   }
 
-  // ── NEW: Open or close a help post ────────────────────────────────────────
+  // ── Open or close a help post ──────────────────────────────────────────────
   async setClosedState(helpId, isClosed) {
     return Help.findByIdAndUpdate(
       helpId,
