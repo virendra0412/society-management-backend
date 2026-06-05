@@ -164,10 +164,31 @@ class PollService {
     });
   }
 
-  async getAll(societyId, query) {
+  async getAll(societyId, query, userId) {
     const { page, limit, skip } = parsePagination(query);
+    // findBySociety now uses +voters projection so we can compute myVote
     const { polls, total } = await pollRepository.findBySociety(societyId, { skip, limit });
-    return { polls, meta: buildPaginationMeta({ total, page, limit }) };
+
+    // Inject myVote: the option _id the requesting user voted for, or null.
+    // voters is stripped in toJSON but we read it before serialisation here.
+    const annotated = polls.map((poll) => {
+      const obj = poll.toObject({ getters: true });
+      obj.myVote = null;
+      if (userId) {
+        for (const opt of poll.options) {
+          const voterIds = opt.voters || [];
+          if (voterIds.some((v) => v.toString() === userId.toString())) {
+            obj.myVote = opt._id;
+            break;
+          }
+        }
+      }
+      // Strip voters from each option before sending to client
+      obj.options = obj.options.map(({ voters: _v, ...rest }) => rest);
+      return obj;
+    });
+
+    return { polls: annotated, meta: buildPaginationMeta({ total, page, limit }) };
   }
 
   async vote(pollId, { optionId }, user) {

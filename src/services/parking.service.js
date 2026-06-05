@@ -25,6 +25,44 @@ class ParkingService {
    */
   async bulkCreateSlots(data, adminUser) {
     const societyId = this._getSocietyId(adminUser);
+
+    // ── Format 1 (mobile): { slots: [{slotNumber, type, zone?}] } ─────────────
+    // The mobile app pre-generates slot numbers client-side and sends the full
+    // array. Accept this format directly.
+    if (Array.isArray(data.slots)) {
+      const incoming = data.slots;
+      if (!incoming.length) throw AppError.badRequest("Slots array is empty.");
+      if (incoming.length > 200) throw AppError.badRequest("Maximum 200 slots per bulk operation.");
+
+      const toInsert = incoming.map((s) => {
+        if (!s.slotNumber || !s.type) {
+          throw AppError.badRequest("Each slot must have slotNumber and type.");
+        }
+        return {
+          society:    societyId,
+          slotNumber: String(s.slotNumber).toUpperCase().trim(),
+          zone:       s.zone || null,
+          type:       s.type,
+          status:     "available",
+        };
+      });
+
+      try {
+        const created = await parkingRepository.createManySlots(toInsert);
+        const skipped = incoming.length - created.length;
+        return { slots: created, skipped };
+      } catch (err) {
+        if (err.code === 11000) {
+          throw AppError.conflict(
+            "Some slot numbers already exist. Adjust your range or prefix.",
+            "SLOT_DUPLICATE"
+          );
+        }
+        throw err;
+      }
+    }
+
+    // ── Format 2 (legacy web): { type, count, prefix?, startNumber?, zone? } ──
     const { zone, type, count, prefix, startNumber = 1 } = data;
 
     if (count < 1 || count > 200) {

@@ -254,13 +254,29 @@ const parking = {
     note:         Joi.string().max(300).trim().optional().allow(""),
   }),
 
-  bulkCreateSlots: Joi.object({
-    type:         Joi.string().valid(...SLOT_TYPES).required(),
-    count:        Joi.number().integer().min(1).max(200).required(),
-    zone:         Joi.string().max(50).trim().optional().allow(""),
-    prefix:       Joi.string().max(5).trim().uppercase().optional().allow(""),
-    startNumber:  Joi.number().integer().min(1).default(1),
-  }),
+  // Accepts two formats:
+  //   Mobile:  { slots: [{slotNumber, type, zone?}] }   (pre-generated list)
+  //   Web/legacy: { type, count, prefix?, startNumber?, zone? }
+  bulkCreateSlots: Joi.alternatives().try(
+    Joi.object({
+      slots: Joi.array()
+        .items(Joi.object({
+          slotNumber: Joi.string().min(1).max(20).trim().required(),
+          type:       Joi.string().valid(...SLOT_TYPES).required(),
+          zone:       Joi.string().max(50).trim().allow("").optional(),
+        }))
+        .min(1)
+        .max(200)
+        .required(),
+    }),
+    Joi.object({
+      type:        Joi.string().valid(...SLOT_TYPES).required(),
+      count:       Joi.number().integer().min(1).max(200).required(),
+      zone:        Joi.string().max(50).trim().optional().allow(""),
+      prefix:      Joi.string().max(5).trim().uppercase().optional().allow(""),
+      startNumber: Joi.number().integer().min(1).default(1),
+    })
+  ),
 
   updateSlot: Joi.object({
     zone:          Joi.string().max(50).trim().allow(""),

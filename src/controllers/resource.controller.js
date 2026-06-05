@@ -80,7 +80,8 @@ class PollController {
   }
 
   async getAll(req, res) {
-    const { polls, meta } = await pollService.getAll(req.societyId, req.query);
+    // Pass userId so the service can annotate each poll with myVote
+    const { polls, meta } = await pollService.getAll(req.societyId, req.query, req.user?._id);
     return sendSuccess(res, { data: { polls }, meta });
   }
 

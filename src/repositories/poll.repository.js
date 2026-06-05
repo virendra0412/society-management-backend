@@ -9,6 +9,7 @@ class PollRepository {
   async findBySociety(societyId, { skip, limit }) {
     const [polls, total] = await Promise.all([
       Poll.find({ society: societyId })
+        .select("+options.voters")   // needed so service can compute myVote per user
         .populate("createdBy", "name role")
         .sort({ createdAt: -1 })
         .skip(skip)
