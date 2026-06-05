@@ -33,6 +33,8 @@ const visitor = {
     hostId: Joi.string().hex().length(24).optional().messages({
       "string.length": "hostId must be a valid MongoDB ObjectId",
     }),
+    // Allow flat number as an alternative identifier — backend looks up user by flat
+    hostFlat: Joi.string().trim().max(20).optional(),
   }),
 
   // Security verifying OTP at gate

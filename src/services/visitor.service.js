@@ -107,6 +107,18 @@ class VisitorService {
         throw AppError.notFound("Resident not found in this society.");
       }
       hostFlat = host.flat;
+    } else if (data.hostFlat) {
+      // Look up resident by flat number — convenient for security staff
+      const User = require("../models/user.model");
+      host = await User.findOne({
+        society: societyId,
+        flat: data.hostFlat.trim(),
+        isApproved: true,
+      }).select("+fcmToken").lean();
+      if (!host) {
+        throw AppError.notFound(`No approved resident found for flat "${data.hostFlat}".`);
+      }
+      hostFlat = host.flat;
     }
 
     const visitor = await visitorRepository.create({
@@ -159,7 +171,11 @@ class VisitorService {
       throw AppError.badRequest("This invite OTP has expired.");
     }
 
-    if (!visitor.verifyOTP(otp)) {
+    // OTP bypass flag — set BYPASS_OTP=true in .env to skip OTP verification
+    // Useful during development / testing. Remove / set to false in production.
+    const bypassOtp = process.env.BYPASS_OTP === "true";
+
+    if (!bypassOtp && !visitor.verifyOTP(otp)) {
       throw AppError.badRequest("Invalid or expired OTP.");
     }
 

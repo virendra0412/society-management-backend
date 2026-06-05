@@ -42,7 +42,7 @@ class IssueRepository {
   async addComment(issueId, comment) {
     return Issue.findByIdAndUpdate(
       issueId,
-      { $push: { comments: comment } },
+      { $push: { comments: comment }, $inc: { commentCount: 1 } },
       { new: true }
     )
       .populate("comments.author", REPORTER_SELECT)
