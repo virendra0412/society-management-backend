@@ -29,7 +29,8 @@ const visitor = {
     vehicleNumber: Joi.string().max(20).trim().uppercase().optional().allow(""),
     purpose: Joi.string().valid(...VISIT_PURPOSES).default("Guest"),
     note: Joi.string().max(300).trim().optional().allow(""),
-    hostId: Joi.string().hex().length(24).required().messages({
+    // Optional — when omitted the walk-in is logged without resident notification
+    hostId: Joi.string().hex().length(24).optional().messages({
       "string.length": "hostId must be a valid MongoDB ObjectId",
     }),
   }),

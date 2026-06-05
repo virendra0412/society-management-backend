@@ -97,25 +97,30 @@ class VisitorService {
   async logWalkIn(data, securityUser) {
     const societyId = this._getSocietyId(securityUser);
 
-    // Verify host (resident) belongs to this society.
-    // Use findByIdWithFcm so fcmToken (select:false) is included for the notification.
-    const host = await userRepository.findByIdWithFcm(data.hostId);
-    if (!host || host.society?.toString() !== societyId?.toString()) {
-      throw AppError.notFound("Resident not found in this society.");
+    let host = null;
+    let hostFlat = data.hostFlat || null;
+
+    if (data.hostId) {
+      // Verify host belongs to this society
+      host = await userRepository.findByIdWithFcm(data.hostId);
+      if (!host || host.society?.toString() !== societyId?.toString()) {
+        throw AppError.notFound("Resident not found in this society.");
+      }
+      hostFlat = host.flat;
     }
 
     const visitor = await visitorRepository.create({
       ...data,
-      host: data.hostId,
-      hostFlat: host.flat,
-      society: societyId,
-      status: "pending",
+      host:     host?._id || null,
+      hostFlat: hostFlat,
+      society:  societyId,
+      status:   "pending",
       isWalkIn: true,
       loggedBy: securityUser._id,
     });
 
-    // Notify resident
-    if (host.fcmToken) {
+    // Notify resident only when host is known
+    if (host?.fcmToken) {
       await sendPushNotification(
         [host.fcmToken],
         {

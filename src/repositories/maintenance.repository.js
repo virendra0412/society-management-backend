@@ -1,3 +1,4 @@
+const mongoose      = require("mongoose");
 const MaintenanceBill = require("../models/maintenance.model");
 
 class MaintenanceRepository {
@@ -85,10 +86,12 @@ class MaintenanceRepository {
    * Get all payment records for a specific resident across all bills.
    */
   async findAllPaymentsByResident(societyId, residentId, { skip, limit }) {
+    const sid = new mongoose.Types.ObjectId(societyId);
+    const rid = new mongoose.Types.ObjectId(residentId);
     const pipeline = [
-      { $match: { society: societyId, isPublished: true, "payments.resident": residentId } },
+      { $match: { society: sid, isPublished: true, "payments.resident": rid } },
       { $unwind: "$payments" },
-      { $match: { "payments.resident": residentId } },
+      { $match: { "payments.resident": rid } },
       { $sort: { dueDate: -1 } },
       { $skip: skip },
       { $limit: limit },

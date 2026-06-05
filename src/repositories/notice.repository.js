@@ -26,6 +26,15 @@ class NoticeRepository {
     return Notice.findById(id).populate("postedBy", "name role").exec();
   }
 
+  // ── NEW: Edit notice fields ────────────────────────────────────────────────
+  async updateById(noticeId, updates) {
+    return Notice.findByIdAndUpdate(
+      noticeId,
+      updates,
+      { new: true, runValidators: true }
+    ).populate("postedBy", "name role").exec();
+  }
+
   // ── NEW: Toggle pin status ─────────────────────────────────────────────────
   async setPinned(noticeId, isPinned) {
     return Notice.findByIdAndUpdate(

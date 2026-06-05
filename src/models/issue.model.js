@@ -104,6 +104,12 @@ const issueSchema = new mongoose.Schema(
       default: null,
     },
     comments: [commentSchema],
+    // Stored counter — incremented by addComment so list queries never need to load all comments
+    commentCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
   {
     timestamps: true,
@@ -121,11 +127,6 @@ const issueSchema = new mongoose.Schema(
 issueSchema.index({ society: 1, status: 1, createdAt: -1 });
 issueSchema.index({ society: 1, category: 1 });
 issueSchema.index({ society: 1, isEscalated: 1 });
-
-// ─── Virtuals ─────────────────────────────────────────────────────────────────
-issueSchema.virtual("commentCount").get(function () {
-  return this.comments?.length ?? 0;
-});
 
 // ─── Middleware: Set resolvedAt timestamp ──────────────────────────────────────
 issueSchema.pre("save", function (next) {

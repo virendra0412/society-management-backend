@@ -59,6 +59,12 @@ class NoticeController {
     });
   }
 
+  // ── NEW: Edit notice ───────────────────────────────────────────────────────
+  async updateNotice(req, res) {
+    const notice = await noticeService.updateNotice(req.params.id, req.body, req.user);
+    return sendSuccess(res, { message: "Notice updated.", data: { notice } });
+  }
+
   // ── NEW: Soft-delete a notice ──────────────────────────────────────────────
   async deleteNotice(req, res) {
     await noticeService.deleteNotice(req.params.id, req.user);

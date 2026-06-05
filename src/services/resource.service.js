@@ -130,6 +130,17 @@ class NoticeService {
     return noticeRepository.setPinned(noticeId, isPinned);
   }
 
+  // ── NEW: Edit a notice ────────────────────────────────────────────────────
+  async updateNotice(noticeId, updates, adminUser) {
+    const notice = await noticeRepository.findById(noticeId);
+    if (!notice) throw AppError.notFound("Notice not found.");
+
+    const adminSocietyId = adminUser.society?._id || adminUser.society;
+    if (notice.society.toString() !== adminSocietyId?.toString()) throw AppError.forbidden();
+
+    return noticeRepository.updateById(noticeId, updates);
+  }
+
   // ── NEW: Soft-delete a notice ──────────────────────────────────────────────
   async deleteNotice(noticeId, adminUser) {
     const notice = await noticeRepository.findById(noticeId);

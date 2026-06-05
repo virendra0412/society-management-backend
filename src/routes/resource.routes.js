@@ -36,6 +36,9 @@ noticeRouter.use(protect, requireSociety);
 noticeRouter.post("/", requireRole("admin"), validate(notice.create), noticeController.create);
 noticeRouter.get("/", noticeController.getAll);
 
+// ── Edit notice (admin) ───────────────────────────────────────────────────
+noticeRouter.patch("/:id", requireRole("admin"), validate(notice.update), noticeController.updateNotice);
+
 // ── NEW: Pin / unpin notice (admin) — validates { isPinned: boolean } body ──
 noticeRouter.patch("/:id/pin", requireRole("admin"), validate(notice.pin), noticeController.setPinned);
 

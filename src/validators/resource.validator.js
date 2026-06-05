@@ -7,7 +7,11 @@ const { CONTACT_GROUPS } = require("../models/contact.model");
 // ─── Issues ───────────────────────────────────────────────────────────────────
 const issue = {
   create: Joi.object({
-    title: Joi.string().min(5).max(150).trim().required(),
+    title: Joi.string().min(5).max(150).trim().required().messages({
+      "string.min":   "Title is too short — describe the issue in at least 5 characters.",
+      "string.empty": "Title is required.",
+      "any.required": "Title is required.",
+    }),
     description: Joi.string().max(2000).trim().optional().allow(""),
     category: Joi.string().valid(...CATEGORIES).required(),
     priority: Joi.string().valid(...PRIORITIES).default("Medium"),
@@ -67,6 +71,14 @@ const notice = {
     publishAt: Joi.date().iso().min("now").optional(),
     isPinned: Joi.boolean().default(false),
   }),
+
+  // Admin: edit an existing notice
+  update: Joi.object({
+    title:    Joi.string().min(3).max(150).trim(),
+    body:     Joi.string().min(5).max(3000).trim(),
+    tag:      Joi.string().valid(...NOTICE_TAGS),
+    isPinned: Joi.boolean(),
+  }).min(1),
 
   // ── NEW: Pin/unpin body ────────────────────────────────────────────────────
   pin: Joi.object({
