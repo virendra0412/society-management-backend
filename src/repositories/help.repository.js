@@ -16,13 +16,28 @@ class HelpRepository {
 
   async findBySociety(societyId, filters = {}, { skip, limit }, sort) {
     const query = { society: societyId, ...filters };
+    // Use aggregate so we can compute replyCount server-side without sending
+    // the full replies array to the client (which could be large).
     const [posts, total] = await Promise.all([
-      Help.find(query)
-        .populate("author", AUTHOR_SELECT)
-        .select("-replies")
-        .sort(sort)
-        .skip(skip)
-        .limit(limit),
+      Help.aggregate([
+        { $match: query },
+        { $addFields: { replyCount: { $size: { $ifNull: ["$replies", []] } } } },
+        { $project: { replies: 0 } },         // still exclude full replies array
+        { $sort: sort || { createdAt: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        // Re-populate author via $lookup
+        {
+          $lookup: {
+            from: "users",
+            localField: "author",
+            foreignField: "_id",
+            pipeline: [{ $project: { name: 1, flat: 1, role: 1 } }],
+            as: "author",
+          },
+        },
+        { $unwind: { path: "$author", preserveNullAndEmpty: true } },
+      ]),
       Help.countDocuments(query),
     ]);
     return { posts, total };
