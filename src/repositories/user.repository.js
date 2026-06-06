@@ -25,7 +25,11 @@ class UserRepository {
     if (selectSensitive) {
       query = query.select("+refreshTokenHash +loginAttempts +lockUntil +passwordChangedAt");
     }
-    return query.populate("society", "name joinCode joinMode").exec();
+    // Populate all society refs inside memberships + activeSocietyId
+    return query
+      .populate("memberships.society", "name joinCode joinMode logo")
+      .populate("activeSocietyId", "name joinCode joinMode logo")
+      .exec();
   }
 
   async create(data) {
@@ -48,44 +52,92 @@ class UserRepository {
     return User.findByIdAndUpdate(userId, { refreshTokenHash: null }).exec();
   }
 
+  // ── Multi-society: set the active society ─────────────────────────────────
+  async setActiveSociety(userId, societyId) {
+    return User.findByIdAndUpdate(
+      userId,
+      { activeSocietyId: societyId },
+      { new: true }
+    )
+      .populate("memberships.society", "name joinCode joinMode logo")
+      .populate("activeSocietyId", "name joinCode joinMode logo")
+      .exec();
+  }
+
+  // ── Multi-society: add a new membership entry ──────────────────────────────
+  async addMembership(userId, membership) {
+    return User.findByIdAndUpdate(
+      userId,
+      { $push: { memberships: membership } },
+      { new: true, runValidators: true }
+    )
+      .populate("memberships.society", "name joinCode joinMode logo")
+      .exec();
+  }
+
+  // ── Multi-society: approve a membership for a specific society ─────────────
+  async approveMembership(userId, societyId) {
+    return User.findOneAndUpdate(
+      { _id: userId, "memberships.society": societyId },
+      { $set: { "memberships.$.isApproved": true } },
+      { new: true }
+    ).exec();
+  }
+
+  // ── Multi-society: deactivate a membership ─────────────────────────────────
+  async deactivateMembership(userId, societyId) {
+    return User.findOneAndUpdate(
+      { _id: userId, "memberships.society": societyId },
+      { $set: { "memberships.$.isActive": false } },
+      { new: true }
+    ).exec();
+  }
+
+  // ── Society members query (reads from memberships array) ───────────────────
   async findSocietyMembers(societyId, { page, limit, skip }) {
     const [members, total] = await Promise.all([
-      User.find({ society: societyId, isActive: true })
-        .select("name email flat wing role isApproved avatar createdAt")
+      User.find({
+        memberships: {
+          $elemMatch: { society: societyId, isActive: true },
+        },
+        isActive: true,
+      })
+        .select("name email avatar memberships activeSocietyId createdAt")
         .skip(skip)
         .limit(limit)
         .sort({ createdAt: -1 }),
-      User.countDocuments({ society: societyId, isActive: true }),
+      User.countDocuments({
+        memberships: {
+          $elemMatch: { society: societyId, isActive: true },
+        },
+        isActive: true,
+      }),
     ]);
     return { members, total };
   }
 
-  // ── NEW: Pending member approval ───────────────────────────────────────────
+  // ── Pending member approval ────────────────────────────────────────────────
   async findPendingMembers(societyId) {
-    return User.find({ society: societyId, isApproved: false, isActive: true })
-      .select("name email flat wing phone createdAt")
+    return User.find({
+      memberships: {
+        $elemMatch: { society: societyId, isApproved: false, isActive: true },
+      },
+      isActive: true,
+    })
+      .select("name email phone memberships createdAt")
       .sort({ createdAt: 1 })
       .exec();
   }
 
-  async approveMember(userId) {
-    return User.findByIdAndUpdate(
-      userId,
-      { isApproved: true },
-      { new: true }
-    ).exec();
+  async approveMember(userId, societyId) {
+    return this.approveMembership(userId, societyId);
   }
 
-  // ── NEW: Reject / remove a pending member ──────────────────────────────────
-  async rejectMember(userId) {
-    return User.findByIdAndUpdate(
-      userId,
-      { isActive: false },
-      { new: true }
-    ).exec();
+  async rejectMember(userId, societyId) {
+    return this.deactivateMembership(userId, societyId);
   }
 
-  // ── NEW: Avatar update ─────────────────────────────────────────────────────
+  // ── Avatar ─────────────────────────────────────────────────────────────────
   async updateAvatar(userId, avatarUrl) {
     return User.findByIdAndUpdate(
       userId,
@@ -94,7 +146,7 @@ class UserRepository {
     ).exec();
   }
 
-  // ── NEW: Family members CRUD ───────────────────────────────────────────────
+  // ── Family members CRUD ────────────────────────────────────────────────────
   async addFamilyMember(userId, member) {
     return User.findByIdAndUpdate(
       userId,
@@ -123,7 +175,7 @@ class UserRepository {
     ).exec();
   }
 
-  // ── NEW: Store / clear password reset OTP ─────────────────────────────────
+  // ── Password reset OTP ─────────────────────────────────────────────────────
   async saveResetOTP(userId, otpHash, expiresAt) {
     return User.findByIdAndUpdate(
       userId,
@@ -140,35 +192,25 @@ class UserRepository {
   }
 
   // ── FCM token (push notifications) ────────────────────────────────────────
-  /**
-   * Find a single user by ID and explicitly select +fcmToken.
-   * Use this anywhere you need to send a push notification to a specific user.
-   * (fcmToken has select:false in the schema so findById() never returns it.)
-   */
   async findByIdWithFcm(id) {
-    return User.findById(id)
-      .select("+fcmToken")
-      .exec();
+    return User.findById(id).select("+fcmToken").exec();
   }
 
-  /**
-   * Store or replace the FCM token for a user's current device.
-   * Call this on every login / app-open from the frontend.
-   */
   async updateFcmToken(userId, fcmToken) {
     return User.findByIdAndUpdate(userId, { fcmToken }, { new: true }).exec();
   }
 
   /**
-   * Retrieve all non-null FCM tokens for members of a society.
-   * Used to fan out push notifications.
+   * Retrieve all non-null FCM tokens for approved members of a society.
+   * Reads from memberships array.
    */
   async getFcmTokensBySociety(societyId) {
     const users = await User.find({
-      society:    societyId,
-      isApproved: true,
-      isActive:   true,
-      fcmToken:   { $ne: null },
+      memberships: {
+        $elemMatch: { society: societyId, isApproved: true, isActive: true },
+      },
+      isActive: true,
+      fcmToken: { $ne: null },
     })
       .select("+fcmToken")
       .exec();

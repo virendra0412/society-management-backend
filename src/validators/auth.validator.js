@@ -48,4 +48,20 @@ const resetPassword = Joi.object({
   newPassword: password.required(),
 });
 
-module.exports = { register, login, refreshToken, forgotPassword, resetPassword };
+
+// ── Multi-society: switch active society ──────────────────────────────────
+const switchSociety = Joi.object({
+  societyId: Joi.string().hex().length(24).required().messages({
+    "string.hex":    "Invalid society ID",
+    "string.length": "Invalid society ID",
+  }),
+});
+
+// ── Multi-society: join a second society ──────────────────────────────────
+const joinSociety = Joi.object({
+  societyJoinCode: Joi.string().length(8).uppercase().required(),
+  flat: Joi.string().max(20).trim().optional(),
+  wing: Joi.string().max(30).trim().optional(),
+});
+
+module.exports = { register, login, refreshToken, forgotPassword, resetPassword, switchSociety, joinSociety };

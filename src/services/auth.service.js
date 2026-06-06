@@ -6,17 +6,23 @@ const AppError = require("../utils/AppError");
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require("../utils/token");
 
 class AuthService {
-  _buildTokenPayload(user) {
+  /**
+   * Build JWT payload from user + a specific societyId context.
+   * role and flat are resolved from the matching membership.
+   */
+  _buildTokenPayload(user, societyId) {
+    const membership = societyId ? user.getMembership(societyId) : null;
     return {
-      userId: user._id.toString(),
-      email: user.email,
-      role: user.role,
-      societyId: user.society?.toString() || null,
+      userId:    user._id.toString(),
+      email:     user.email,
+      societyId: societyId ? societyId.toString() : null,
+      role:      membership?.role || null,
+      flat:      membership?.flat || null,
     };
   }
 
-  async _issueTokenPair(user) {
-    const payload = this._buildTokenPayload(user);
+  async _issueTokenPair(user, societyId) {
+    const payload = this._buildTokenPayload(user, societyId);
     const accessToken = signAccessToken(payload);
     const refreshToken = signRefreshToken({ userId: user._id.toString() });
 
@@ -41,21 +47,24 @@ class AuthService {
       if (society.joinMode === "open") isApproved = true;
     }
 
+    // Build initial memberships array if joining a society
+    const memberships = society
+      ? [{ society: society._id, flat, wing: wing || null, role: "resident", isApproved }]
+      : [];
+
     const user = await userRepository.create({
       name,
       email,
       phone,
       password,
-      flat,
-      wing: wing || null,
-      society: society?._id || null,
-      isApproved,
+      memberships,
+      activeSocietyId: society?._id || null,
     });
 
-    const tokens = await this._issueTokenPair(user);
+    const tokens = await this._issueTokenPair(user, society?._id || null);
 
     return {
-      user: { _id: user._id, name: user.name, email: user.email, role: user.role, isApproved, society },
+      user: { _id: user._id, name: user.name, email: user.email, memberships: user.memberships, activeSocietyId: user.activeSocietyId },
       ...tokens,
       pendingApproval: !isApproved && !!society,
     };
@@ -83,9 +92,77 @@ class AuthService {
       await user.resetLoginAttempts();
     }
 
-    const tokens = await this._issueTokenPair(user);
+    // Use the stored activeSocietyId (last used society) for the JWT
+    const activeSocietyId = user.activeSocietyId || user.memberships[0]?.society || null;
+
+    const tokens = await this._issueTokenPair(user, activeSocietyId);
     const populated = await userRepository.findById(user._id);
     return { user: populated, ...tokens };
+  }
+
+  /**
+   * Switch the active society context. Issues a new JWT with the new societyId.
+   * Validates that the user is an approved member of the requested society.
+   */
+  async switchSociety(userId, newSocietyId) {
+    const user = await userRepository.findById(userId);
+    if (!user) throw AppError.notFound("User not found.");
+
+    const membership = user.getMembership(newSocietyId);
+    if (!membership) {
+      throw AppError.forbidden("You are not a member of this society.");
+    }
+    if (!membership.isApproved) {
+      throw AppError.forbidden("Your membership in this society is pending approval.");
+    }
+
+    // Persist the new active society on the user document
+    await userRepository.setActiveSociety(userId, newSocietyId);
+
+    // Re-fetch with populated memberships for clean response
+    const updatedUser = await userRepository.findById(userId);
+
+    // Issue a fresh token pair with new society context
+    const tokens = await this._issueTokenPair(updatedUser, newSocietyId);
+
+    return { user: updatedUser, ...tokens };
+  }
+
+  /**
+   * Join a second (or first) society using a join code.
+   * If user already has an account, adds a new membership entry.
+   */
+  async joinSociety(userId, { societyJoinCode, flat, wing }) {
+    const society = await Society.findOne({ joinCode: societyJoinCode.toUpperCase() });
+    if (!society) throw AppError.badRequest("Invalid society join code.");
+
+    const user = await userRepository.findById(userId);
+    if (!user) throw AppError.notFound("User not found.");
+
+    // Check if already a member
+    const existing = user.memberships.find(
+      (m) => m.society.toString() === society._id.toString()
+    );
+    if (existing) {
+      throw AppError.conflict("You are already a member of this society.");
+    }
+
+    const isApproved = society.joinMode === "open";
+    const newMembership = {
+      society:    society._id,
+      flat:       flat || null,
+      wing:       wing || null,
+      role:       "resident",
+      isApproved,
+    };
+
+    const updatedUser = await userRepository.addMembership(userId, newMembership);
+
+    return {
+      user: updatedUser,
+      pendingApproval: !isApproved,
+      society: { _id: society._id, name: society.name },
+    };
   }
 
   async refreshTokens(incomingRefreshToken) {
@@ -97,38 +174,31 @@ class AuthService {
     }
 
     const hash = crypto.createHash("sha256").update(incomingRefreshToken).digest("hex");
-    const storedHash = user.refreshTokenHash;
-    if (storedHash !== hash) {
+    if (user.refreshTokenHash !== hash) {
       await userRepository.clearRefreshToken(user._id);
       throw AppError.unauthorized(
         "Refresh token reuse detected. All sessions have been invalidated. Please log in again."
       );
     }
 
-    const tokens = await this._issueTokenPair(user);
-    return tokens;
+    // Keep the same active society when refreshing
+    const activeSocietyId = user.activeSocietyId || user.memberships[0]?.society || null;
+    return this._issueTokenPair(user, activeSocietyId);
   }
 
   async logout(userId) {
     await userRepository.clearRefreshToken(userId);
   }
 
-  // ── NEW: Forgot password — generate & log OTP (wire email in prod) ─────────
   async forgotPassword(email) {
     const user = await userRepository.findByEmailForReset(email);
-
-    // Always return a generic message to prevent email enumeration
     if (!user || !user.isActive) {
       return { message: "If that email exists, an OTP has been sent." };
     }
 
-    // Generate OTP using the model method (hashes it internally)
     const otp = user.createPasswordResetOTP();
     await user.save({ validateBeforeSave: false });
 
-    // ── In production: send otp via email/SMS. ────────────────────────────────
-    // e.g. await emailService.sendPasswordResetOTP(user.email, otp);
-    // For development, log to console and include in response for easy Postman testing:
     const devOtp = process.env.NODE_ENV !== "production" ? otp : undefined;
     console.log(`[DEV] Password reset OTP for ${email}: ${otp}`);
 
@@ -138,7 +208,6 @@ class AuthService {
     };
   }
 
-  // ── NEW: Reset password using the OTP ─────────────────────────────────────
   async resetPassword({ email, otp, newPassword }) {
     const user = await userRepository.findByEmailForReset(email);
 
@@ -147,22 +216,19 @@ class AuthService {
     }
 
     if (new Date() > user.passwordResetOTPExpires) {
-      // Clear expired OTP
       await userRepository.clearResetOTP(user._id);
       throw AppError.badRequest("OTP has expired. Please request a new one.");
     }
 
-    // Hash incoming OTP and compare
     const otpHash = crypto.createHash("sha256").update(otp.toString()).digest("hex");
     if (otpHash !== user.passwordResetOTP) {
       throw AppError.badRequest("Invalid OTP.");
     }
 
-    // Update password (pre-save hook will hash it) and clear reset fields
     user.password = newPassword;
     user.passwordResetOTP = null;
     user.passwordResetOTPExpires = null;
-    user.refreshTokenHash = null; // invalidate all existing sessions
+    user.refreshTokenHash = null;
     await user.save();
 
     return { message: "Password reset successfully. Please log in with your new password." };

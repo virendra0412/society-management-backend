@@ -4,13 +4,10 @@ const AppError = require("../utils/AppError");
 
 /**
  * Protects routes — requires a valid Bearer access token.
- * Attaches req.user (full user doc) and req.societyId.
+ * Attaches req.user (full user doc), req.societyId (from JWT), and req.role.
  *
- * Checks:
- *  1. Token exists and is valid JWT
- *  2. User still exists and is active
- *  3. Token was issued AFTER any password change (token invalidation)
- *  4. User is approved member of a society
+ * societyId is read from the JWT payload (set at login / switch-society),
+ * NOT derived from user.society — this is critical for multi-society support.
  */
 const protect = async (req, res, next) => {
   const token = extractBearerToken(req.headers.authorization);
@@ -32,16 +29,16 @@ const protect = async (req, res, next) => {
     throw AppError.unauthorized("Password was recently changed. Please log in again.");
   }
 
-  // Attach to request for downstream use
+  // societyId and role come from the JWT payload (active society context)
   req.user = user;
-  req.societyId = user.society?._id || user.society || null;
+  req.societyId = decoded.societyId || null;
+  req.role = decoded.role || null;
 
   next();
 };
 
 /**
  * Optional auth — if a token is present, authenticate; otherwise continue.
- * Used for routes accessible to guests but with enhanced features for logged-in users.
  */
 const optionalProtect = async (req, res, next) => {
   const token = extractBearerToken(req.headers.authorization);
@@ -52,7 +49,8 @@ const optionalProtect = async (req, res, next) => {
     const user = await userRepository.findById(decoded.userId);
     if (user && user.isActive) {
       req.user = user;
-      req.societyId = user.society?._id || user.society || null;
+      req.societyId = decoded.societyId || null;
+      req.role = decoded.role || null;
     }
   } catch {
     // Silently ignore invalid tokens for optional auth
@@ -61,16 +59,24 @@ const optionalProtect = async (req, res, next) => {
 };
 
 /**
- * Ensure the authenticated user belongs to a society.
+ * Ensure the authenticated user belongs to a society and is approved.
+ * Validates against the active society from the JWT (req.societyId).
  * Must come after protect().
  */
 const requireSociety = (req, res, next) => {
   if (!req.societyId) {
     throw AppError.forbidden("You must be a member of a society to access this resource.");
   }
-  if (!req.user.isApproved) {
+
+  // Verify the JWT's societyId is a valid, approved membership on the user doc
+  const membership = req.user.getMembership(req.societyId);
+  if (!membership) {
+    throw AppError.forbidden("You are not a member of this society.");
+  }
+  if (!membership.isApproved) {
     throw AppError.forbidden("Your membership is pending approval by the society admin.");
   }
+
   next();
 };
 

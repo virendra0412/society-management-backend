@@ -45,7 +45,42 @@ class AuthController {
     return sendSuccess(res, { data: { user: req.user } });
   }
 
-  // ── NEW: Step 1 — request OTP sent to email ────────────────────────────────
+  /**
+   * POST /auth/switch-society
+   * Validates membership, issues new JWT with new societyId context.
+   */
+  async switchSociety(req, res) {
+    const { societyId } = req.body;
+    const result = await authService.switchSociety(req.user._id, societyId);
+    return sendSuccess(res, {
+      message: "Society switched successfully.",
+      data: {
+        user: result.user,
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+      },
+    });
+  }
+
+  /**
+   * POST /auth/join-society
+   * Add a second (or subsequent) society membership to an existing account.
+   */
+  async joinSociety(req, res) {
+    const result = await authService.joinSociety(req.user._id, req.body);
+    return sendSuccess(res, {
+      statusCode: 201,
+      message: result.pendingApproval
+        ? "Join request submitted. Pending admin approval."
+        : `Successfully joined ${result.society.name}.`,
+      data: {
+        user: result.user,
+        society: result.society,
+        pendingApproval: result.pendingApproval,
+      },
+    });
+  }
+
   async forgotPassword(req, res) {
     const result = await authService.forgotPassword(req.body.email);
     return sendSuccess(res, {
@@ -54,7 +89,6 @@ class AuthController {
     });
   }
 
-  // ── NEW: Step 2 — verify OTP and set new password ─────────────────────────
   async resetPassword(req, res) {
     const result = await authService.resetPassword(req.body);
     return sendSuccess(res, { message: result.message });

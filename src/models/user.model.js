@@ -3,7 +3,7 @@ const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const { bcryptSaltRounds } = require("../config/env");
 
-const ROLES = Object.freeze(["resident", "admin", "vendor"]);
+const ROLES = Object.freeze(["resident", "admin", "committee", "security", "vendor"]);
 
 // ─── Sub-schema: Family Member ─────────────────────────────────────────────────
 const familyMemberSchema = new mongoose.Schema(
@@ -25,6 +25,24 @@ const familyMemberSchema = new mongoose.Schema(
       match: [/^\+?[0-9]{7,15}$/, "Invalid phone number"],
       default: null,
     },
+  },
+  { _id: true, timestamps: false }
+);
+
+// ─── Sub-schema: Society Membership ───────────────────────────────────────────
+const membershipSchema = new mongoose.Schema(
+  {
+    society:    { type: mongoose.Schema.Types.ObjectId, ref: "Society", required: true },
+    flat:       { type: String, trim: true, maxlength: [20, "Flat number too long"], default: null },
+    wing:       { type: String, trim: true, maxlength: [30, "Wing/Block name too long"], default: null },
+    role: {
+      type: String,
+      enum: { values: ROLES, message: `Role must be one of: ${ROLES.join(", ")}` },
+      default: "resident",
+    },
+    isApproved: { type: Boolean, default: false },
+    joinedAt:   { type: Date, default: Date.now },
+    isActive:   { type: Boolean, default: true },
   },
   { _id: true, timestamps: false }
 );
@@ -56,29 +74,23 @@ const userSchema = new mongoose.Schema(
       minlength: [8, "Password must be at least 8 characters"],
       select: false,
     },
-    role: {
-      type: String,
-      enum: { values: ROLES, message: `Role must be one of: ${ROLES.join(", ")}` },
-      default: "resident",
+
+    // ── Multi-society memberships (replaces top-level society/flat/role/wing) ──
+    memberships: {
+      type: [membershipSchema],
+      default: [],
     },
-    society: {
+    // Tracks which society is currently "active" for this user's session context
+    activeSocietyId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Society",
       default: null,
     },
-    flat: {
-      type: String,
-      trim: true,
-      maxlength: [20, "Flat number too long"],
-      default: null,
-    },
-    // FIX 1: renamed block → wing
-    wing: {
-      type: String,
-      trim: true,
-      maxlength: [30, "Wing/Block name too long"],
-      default: null,
-    },
+
+    // ── Legacy fields kept for backward-compat during migration ───────────────
+    // These are derived from memberships[activeSocietyId] via a virtual / helper.
+    // New code should read from memberships; these are NOT written to anymore.
+
     avatar: {
       type: String,
       default: null,
@@ -88,26 +100,26 @@ const userSchema = new mongoose.Schema(
       default: [],
       validate: [arr => arr.length <= 10, "Maximum 10 family members allowed"],
     },
-    isActive:   { type: Boolean, default: true },
-    isApproved: { type: Boolean, default: false },
-    // FIX 2: FCM token for push notifications (one token per device/session)
+    isActive: { type: Boolean, default: true },
+    // FCM token for push notifications (one token per device/session)
     fcmToken: {
       type: String,
       default: null,
-      select: false,      // never leak tokens in general API responses
+      select: false,   // never leak tokens in general API responses
     },
-    refreshTokenHash:      { type: String, select: false, default: null },
-    loginAttempts:         { type: Number, select: false, default: 0 },
-    lockUntil:             { type: Date,   select: false, default: null },
-    passwordChangedAt:     { type: Date,   select: false },
-    passwordResetOTP:      { type: String, select: false, default: null },
-    passwordResetOTPExpires: { type: Date, select: false, default: null },
-    passwordResetToken:    { type: String, select: false, default: null },
+    refreshTokenHash:        { type: String, select: false, default: null },
+    loginAttempts:           { type: Number, select: false, default: 0 },
+    lockUntil:               { type: Date,   select: false, default: null },
+    passwordChangedAt:       { type: Date,   select: false },
+    passwordResetOTP:        { type: String, select: false, default: null },
+    passwordResetOTPExpires: { type: Date,   select: false, default: null },
+    passwordResetToken:      { type: String, select: false, default: null },
     passwordResetTokenExpires: { type: Date, select: false, default: null },
   },
   {
     timestamps: true,
     toJSON: {
+      virtuals: true,
       transform(doc, ret) {
         delete ret.password;
         delete ret.refreshTokenHash;
@@ -117,7 +129,7 @@ const userSchema = new mongoose.Schema(
         delete ret.passwordResetOTPExpires;
         delete ret.passwordResetToken;
         delete ret.passwordResetTokenExpires;
-        delete ret.fcmToken;         // never expose FCM tokens
+        delete ret.fcmToken;   // never expose FCM tokens
         delete ret.__v;
         return ret;
       },
@@ -125,10 +137,39 @@ const userSchema = new mongoose.Schema(
   }
 );
 
+// ─── Virtuals: convenience getters for active membership context ──────────────
+userSchema.virtual("activeMembership").get(function () {
+  if (!this.activeSocietyId) return null;
+  return this.memberships.find(
+    (m) => m.society.toString() === this.activeSocietyId.toString() && m.isActive
+  ) || null;
+});
+
+userSchema.virtual("role").get(function () {
+  return this.activeMembership?.role || null;
+});
+
+userSchema.virtual("flat").get(function () {
+  return this.activeMembership?.flat || null;
+});
+
+userSchema.virtual("wing").get(function () {
+  return this.activeMembership?.wing || null;
+});
+
+userSchema.virtual("isApproved").get(function () {
+  return this.activeMembership?.isApproved || false;
+});
+
+userSchema.virtual("society").get(function () {
+  return this.activeSocietyId;
+});
+
 // ─── Indexes ──────────────────────────────────────────────────────────────────
 userSchema.index({ email: 1 }, { unique: true });
-userSchema.index({ society: 1, role: 1 });
-userSchema.index({ society: 1, isApproved: 1 });
+userSchema.index({ "memberships.society": 1, "memberships.role": 1 });
+userSchema.index({ "memberships.society": 1, "memberships.isApproved": 1 });
+userSchema.index({ activeSocietyId: 1 });
 
 // ─── Pre-save Hook: Hash password ─────────────────────────────────────────────
 userSchema.pre("save", async function (next) {
@@ -174,6 +215,23 @@ userSchema.methods.createPasswordResetOTP = function () {
   this.passwordResetOTP = crypto.createHash("sha256").update(otp).digest("hex");
   this.passwordResetOTPExpires = new Date(Date.now() + 10 * 60 * 1000);
   return otp;
+};
+
+/**
+ * Get the membership record for a specific society.
+ */
+userSchema.methods.getMembership = function (societyId) {
+  return this.memberships.find(
+    (m) => m.society.toString() === societyId.toString() && m.isActive
+  ) || null;
+};
+
+/**
+ * Check if user is an approved member of a given society.
+ */
+userSchema.methods.isApprovedMemberOf = function (societyId) {
+  const m = this.getMembership(societyId);
+  return !!(m && m.isApproved);
 };
 
 const User = mongoose.model("User", userSchema);
