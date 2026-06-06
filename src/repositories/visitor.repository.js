@@ -124,6 +124,110 @@ class VisitorRepository {
       { new: true }
     ).exec();
   }
+
+  // ─── Flow C: Trusted Visitor Methods ──────────────────────────────────────
+
+  /**
+   * Find all active trusted pass records for a resident.
+   */
+  async findTrustedByHost(hostId, filters = {}) {
+    const query = { host: hostId, isTrusted: true, ...filters };
+    return Visitor.find(query)
+      .sort({ createdAt: -1 })
+      .exec();
+  }
+
+  /**
+   * Find active trusted passes for a society — used by guards to look up visitors.
+   * Filters to non-expired passes only.
+   */
+  async findTrustedBySociety(societyId, { phone, name } = {}) {
+    const query = {
+      society: societyId,
+      isTrusted: true,
+      status: { $nin: ["expired", "rejected"] },
+      $or: [
+        { validUntil: null },
+        { validUntil: { $gte: new Date() } },
+      ],
+    };
+    if (phone) query.phone = phone;
+    if (name) query.name = new RegExp(name, "i");
+    return Visitor.find(query)
+      .populate("host", "name flat wing phone")
+      .exec();
+  }
+
+  /**
+   * Increment entryCount on a trusted pass and set last entryTime.
+   */
+  async recordTrustedEntry(visitorId) {
+    return Visitor.findByIdAndUpdate(
+      visitorId,
+      {
+        $inc: { entryCount: 1 },
+        $set: { entryTime: new Date(), status: "approved" },
+      },
+      { new: true }
+    ).exec();
+  }
+
+  /**
+   * Find trusted passes expiring within the next N days — used to notify residents.
+   */
+  async findExpiringTrustedPasses(withinDays = 7) {
+    const cutoff = new Date(Date.now() + withinDays * 24 * 60 * 60 * 1000);
+    return Visitor.find({
+      isTrusted: true,
+      passType: { $ne: "permanent" },
+      validUntil: { $lte: cutoff, $gte: new Date() },
+      status: { $nin: ["expired", "rejected"] },
+    })
+      .populate("host", "name flat wing fcmToken")
+      .exec();
+  }
+
+  /**
+   * Expire trusted passes that have passed their validUntil date.
+   */
+  async expireOldTrustedPasses() {
+    return Visitor.updateMany(
+      {
+        isTrusted: true,
+        passType: { $ne: "permanent" },
+        validUntil: { $lt: new Date() },
+        status: { $nin: ["expired", "rejected"] },
+      },
+      { $set: { status: "expired" } }
+    ).exec();
+  }
+
+  // ─── Flow D: Delivery Auto-Exit ──────────────────────────────────────────
+
+  /**
+   * Find all "approved" delivery visitors whose auto-exit time has passed.
+   */
+  async findDeliveryAutoExitDue() {
+    return Visitor.find({
+      status: "approved",
+      purpose: "Delivery",
+      deliveryAutoExitAt: { $lte: new Date() },
+    }).exec();
+  }
+
+  /**
+   * Bulk auto-exit deliveries past their auto-exit time.
+   */
+  async autoExitDeliveries() {
+    return Visitor.updateMany(
+      {
+        status: "approved",
+        purpose: "Delivery",
+        deliveryAutoExitAt: { $lte: new Date() },
+      },
+      { $set: { status: "exited", exitTime: new Date() } }
+    ).exec();
+  }
 }
 
 module.exports = new VisitorRepository();

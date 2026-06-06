@@ -86,4 +86,52 @@ router.get(
 // ── Any role: Get single visitor (residents restricted to own) ────────────────
 router.get("/:id", visitorController.getOne);
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Flow C — Trusted / Frequent Visitor Routes
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Resident: register a new trusted visitor pass
+router.post(
+  "/trusted",
+  requireRole("resident", "admin"),
+  validate(visitorValidator.registerTrusted),
+  visitorController.registerTrusted
+);
+
+// Resident: list their own trusted visitor passes
+router.get(
+  "/trusted/mine",
+  requireRole("resident", "admin"),
+  visitorController.getMyTrusted
+);
+
+// Security: look up trusted visitors by phone or name (guard lookup screen)
+router.get(
+  "/trusted/lookup",
+  requireRole("admin", "vendor"),
+  visitorController.lookupTrusted
+);
+
+// Resident: update a trusted pass (schedule, passType, notes, etc.)
+router.patch(
+  "/trusted/:id",
+  requireRole("resident", "admin"),
+  validate(visitorValidator.updateTrusted),
+  visitorController.updateTrusted
+);
+
+// Resident: revoke (expire) a trusted pass immediately
+router.patch(
+  "/trusted/:id/revoke",
+  requireRole("resident", "admin"),
+  visitorController.revokeTrusted
+);
+
+// Security: record auto-entry for a trusted visitor
+router.post(
+  "/trusted/:id/entry",
+  requireRole("admin", "vendor"),
+  visitorController.trustedEntry
+);
+
 module.exports = router;

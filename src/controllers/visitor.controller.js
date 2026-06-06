@@ -93,6 +93,61 @@ class VisitorController {
     const visitor = await visitorService.getVisitorById(req.params.id, req.user);
     return sendSuccess(res, { data: { visitor } });
   }
+
+  // ══ Flow C: Trusted Visitor Endpoints ════════════════════════════════════
+
+  // ── Resident: Register a trusted/frequent visitor ─────────────────────────
+  async registerTrusted(req, res) {
+    const visitor = await visitorService.registerTrustedVisitor(req.body, req.user);
+    return sendSuccess(res, {
+      statusCode: 201,
+      message: "Trusted visitor registered. They will be auto-approved within their schedule window.",
+      data: { visitor },
+    });
+  }
+
+  // ── Resident: Update a trusted visitor pass ───────────────────────────────
+  async updateTrusted(req, res) {
+    const visitor = await visitorService.updateTrustedVisitor(req.params.id, req.body, req.user);
+    return sendSuccess(res, {
+      message: "Trusted visitor pass updated.",
+      data: { visitor },
+    });
+  }
+
+  // ── Resident: Revoke a trusted visitor pass ───────────────────────────────
+  async revokeTrusted(req, res) {
+    const visitor = await visitorService.revokeTrustedVisitor(req.params.id, req.user);
+    return sendSuccess(res, {
+      message: "Trusted visitor pass revoked. Entry will no longer be auto-approved.",
+      data: { visitor },
+    });
+  }
+
+  // ── Resident: List all trusted visitor passes ─────────────────────────────
+  async getMyTrusted(req, res) {
+    const activeOnly = req.query.activeOnly === "true";
+    const visitors = await visitorService.getMyTrustedVisitors(req.user, { activeOnly });
+    return sendSuccess(res, { data: { visitors } });
+  }
+
+  // ── Security: Look up a trusted visitor by phone / name ───────────────────
+  async lookupTrusted(req, res) {
+    const visitors = await visitorService.lookupTrustedVisitor(req.societyId, {
+      phone: req.query.phone,
+      name:  req.query.name,
+    });
+    return sendSuccess(res, { data: { visitors } });
+  }
+
+  // ── Security: Record auto-entry for a trusted visitor ────────────────────
+  async trustedEntry(req, res) {
+    const visitor = await visitorService.trustedVisitorEntry(req.params.id, req.user);
+    return sendSuccess(res, {
+      message: "Trusted visitor entry recorded.",
+      data: { visitor },
+    });
+  }
 }
 
 module.exports = new VisitorController();

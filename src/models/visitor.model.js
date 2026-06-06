@@ -16,12 +16,22 @@ const crypto = require("crypto");
  *   2. Security calls resident for approval
  *   3. Resident approves/rejects via app → status: "approved" / "rejected"
  *   4. Visitor leaves → security marks exit → status: "exited"
+ *
+ * Flow C — Frequent / Trusted Visitor (maids, cooks, drivers, etc.):
+ *   1. Resident registers a trusted visitor with schedule + validity
+ *   2. Guard looks up visitor by phone or name → system checks schedule window
+ *   3. Auto-approved if within window → entry logged silently (no push per visit)
+ *   4. Resident gets a daily digest instead of per-entry notifications
+ *
+ * Flow D — Delivery (Amazon, Swiggy, Zepto, etc.):
+ *   Uses existing walk-in flow with purpose:"Delivery".
+ *   Auto-exit fires after a configurable timeout (default 15 min) via cron job.
  */
 
 const VISITOR_STATUSES = Object.freeze([
   "invited",   // resident created invite, OTP generated
   "pending",   // walk-in, awaiting resident approval
-  "approved",  // entry approved (OTP verified OR resident approved walk-in)
+  "approved",  // entry approved (OTP verified OR resident approved walk-in OR trusted auto-entry)
   "rejected",  // resident rejected walk-in
   "exited",    // visitor has left the premises
   "expired",   // OTP expired without entry
@@ -33,6 +43,25 @@ const VISIT_PURPOSES = Object.freeze([
   "Cab",
   "Service",
   "Other",
+]);
+
+// Trusted visitor categories (Flow C)
+const TRUSTED_VISITOR_CATEGORIES = Object.freeze([
+  "Maid",
+  "Cook",
+  "Driver",
+  "Security",
+  "Vendor",
+  "Delivery",
+  "Service",
+  "Other",
+]);
+
+// Valid pass durations for trusted visitors
+const TRUSTED_PASS_TYPES = Object.freeze([
+  "daily",     // expires midnight — for one-time delivery/cab
+  "monthly",   // 30 days — maids, cooks
+  "permanent", // until manually revoked by resident
 ]);
 
 const visitorSchema = new mongoose.Schema(
@@ -122,6 +151,73 @@ const visitorSchema = new mongoose.Schema(
       default: null,
     },
 
+    // ── Flow C: Trusted / Frequent Visitor ────────────────────────────────────
+    /**
+     * When true this record represents a standing pass (maid, cook, driver, etc.)
+     * rather than a single-visit entry. The guard looks up by phone/name and the
+     * system auto-approves if within the accessSchedule window.
+     */
+    isTrusted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    // Category of trusted visitor (Maid, Cook, Driver, etc.)
+    category: {
+      type: String,
+      enum: { values: [...TRUSTED_VISITOR_CATEGORIES], message: "Invalid category" },
+      default: null,
+    },
+
+    // Pass validity
+    passType: {
+      type: String,
+      enum: { values: [...TRUSTED_PASS_TYPES], message: "Invalid passType" },
+      default: "monthly",
+    },
+    // When this trusted pass expires (null = permanent)
+    validUntil: {
+      type: Date,
+      default: null,
+    },
+
+    /**
+     * Schedule window — when auto-entry is allowed.
+     * days: 0=Sun, 1=Mon, … 6=Sat  (matches JS Date.getDay())
+     * fromTime / toTime: "HH:MM" in 24-hour format (IST)
+     * If omitted, auto-entry is allowed any time within validity.
+     */
+    accessSchedule: {
+      days:     { type: [Number], default: [0, 1, 2, 3, 4, 5, 6] }, // all days
+      fromTime: { type: String, default: "00:00" },
+      toTime:   { type: String, default: "23:59" },
+    },
+
+    // Optional ID proof uploaded by the resident (Cloudinary URL)
+    idProofUrl: {
+      type: String,
+      default: null,
+    },
+
+    // How many times this trusted pass has been used (entry count)
+    entryCount: {
+      type: Number,
+      default: 0,
+    },
+
+    // ── Flow D: Delivery Auto-Exit ─────────────────────────────────────────────
+    /**
+     * For Delivery purpose: set by the service when entry is granted.
+     * The cron job auto-marks exit if still "approved" past this timestamp.
+     * Configurable via DELIVERY_AUTO_EXIT_MINUTES env var (default 15).
+     */
+    deliveryAutoExitAt: {
+      type: Date,
+      default: null,
+      index: true,   // sparse-ish; most visitors won't have this set
+    },
+
     // ── Timestamps ────────────────────────────────────────────────────────────
     // When the visitor is expected (for pre-approved invites)
     expectedAt: {
@@ -163,6 +259,11 @@ const visitorSchema = new mongoose.Schema(
 visitorSchema.index({ society: 1, status: 1, createdAt: -1 });
 visitorSchema.index({ society: 1, host: 1, createdAt: -1 });
 visitorSchema.index({ entryOTPExpires: 1 }, { sparse: true }); // TTL-like queries for expiry
+// Flow C: find trusted passes by society + host + phone quickly
+visitorSchema.index({ society: 1, isTrusted: 1, phone: 1 });
+visitorSchema.index({ society: 1, isTrusted: 1, host: 1, validUntil: 1 });
+// Flow D: delivery auto-exit
+visitorSchema.index({ deliveryAutoExitAt: 1 }, { sparse: true });
 
 // ─── Instance Methods ─────────────────────────────────────────────────────────
 
@@ -194,3 +295,5 @@ const Visitor = mongoose.model("Visitor", visitorSchema);
 module.exports = Visitor;
 module.exports.VISITOR_STATUSES = VISITOR_STATUSES;
 module.exports.VISIT_PURPOSES = VISIT_PURPOSES;
+module.exports.TRUSTED_VISITOR_CATEGORIES = TRUSTED_VISITOR_CATEGORIES;
+module.exports.TRUSTED_PASS_TYPES = TRUSTED_PASS_TYPES;

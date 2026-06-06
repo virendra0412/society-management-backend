@@ -181,6 +181,14 @@ class VisitorService {
 
     const updated = await visitorRepository.markEntry(visitorId, securityUser._id);
 
+    // Flow D: set auto-exit timer for deliveries
+    if (visitor.purpose === "Delivery") {
+      const autoExitMinutes = parseInt(process.env.DELIVERY_AUTO_EXIT_MINUTES || "15", 10);
+      await visitorRepository.updateById(visitorId, {
+        deliveryAutoExitAt: new Date(Date.now() + autoExitMinutes * 60 * 1000),
+      });
+    }
+
     // Notify resident that their guest has arrived.
     // Use findByIdWithFcm so fcmToken (select:false) is included.
     const host = await userRepository.findByIdWithFcm(visitor.host);
@@ -212,6 +220,15 @@ class VisitorService {
     }
 
     const updated = await visitorRepository.markEntry(visitorId, residentUser._id);
+
+    // Flow D: set auto-exit timer for deliveries
+    if (visitor.purpose === "Delivery") {
+      const autoExitMinutes = parseInt(process.env.DELIVERY_AUTO_EXIT_MINUTES || "15", 10);
+      await visitorRepository.updateById(visitorId, {
+        deliveryAutoExitAt: new Date(Date.now() + autoExitMinutes * 60 * 1000),
+      });
+    }
+
     return updated;
   }
 
@@ -244,6 +261,182 @@ class VisitorService {
     }
 
     return visitorRepository.markExit(visitorId);
+  }
+
+  // ─── Flow C: Trusted Visitor Management ───────────────────────────────────
+
+  /**
+   * Resident registers a trusted/frequent visitor (maid, cook, driver, etc.)
+   * with an optional schedule window and pass validity.
+   */
+  async registerTrustedVisitor(data, residentUser) {
+    const societyId = this._getSocietyId(residentUser);
+
+    // Compute validUntil from passType
+    let validUntil = null;
+    const passType = data.passType || "monthly";
+    if (passType === "daily") {
+      // Expires at midnight tonight (IST = UTC+5:30)
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      validUntil = end;
+    } else if (passType === "monthly") {
+      validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    }
+    // "permanent" → validUntil stays null
+
+    const visitor = await visitorRepository.create({
+      name:       data.name,
+      phone:      data.phone || null,
+      vehicleNumber: data.vehicleNumber || null,
+      purpose:    "Service",
+      note:       data.note || null,
+      society:    societyId,
+      host:       residentUser._id,
+      hostFlat:   residentUser.flat,
+      status:     "invited",  // active trusted pass — reusing "invited" to signal "live"
+      isWalkIn:   false,
+      isTrusted:  true,
+      category:   data.category,
+      passType,
+      validUntil,
+      accessSchedule: {
+        days:     data.accessSchedule?.days     ?? [0, 1, 2, 3, 4, 5, 6],
+        fromTime: data.accessSchedule?.fromTime ?? "00:00",
+        toTime:   data.accessSchedule?.toTime   ?? "23:59",
+      },
+      idProofUrl: data.idProofUrl || null,
+    });
+
+    return visitor;
+  }
+
+  /**
+   * Resident updates a trusted pass (reschedule, extend, revoke, etc.)
+   */
+  async updateTrustedVisitor(visitorId, data, residentUser) {
+    const visitor = await visitorRepository.findById(visitorId);
+    if (!visitor) throw AppError.notFound("Trusted visitor record not found.");
+    if (!visitor.isTrusted) throw AppError.badRequest("This record is not a trusted visitor pass.");
+
+    const hostId = visitor.host?._id?.toString() || visitor.host?.toString();
+    if (hostId !== residentUser._id.toString()) {
+      throw AppError.forbidden("You can only update your own trusted visitors.");
+    }
+
+    // Recompute validUntil if passType changed
+    const updates = { ...data };
+    if (data.passType) {
+      if (data.passType === "daily") {
+        const end = new Date();
+        end.setHours(23, 59, 59, 999);
+        updates.validUntil = end;
+      } else if (data.passType === "monthly") {
+        updates.validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      } else {
+        updates.validUntil = null; // permanent
+      }
+    }
+    if (data.accessSchedule) {
+      updates["accessSchedule.days"]     = data.accessSchedule.days     ?? visitor.accessSchedule.days;
+      updates["accessSchedule.fromTime"] = data.accessSchedule.fromTime ?? visitor.accessSchedule.fromTime;
+      updates["accessSchedule.toTime"]   = data.accessSchedule.toTime   ?? visitor.accessSchedule.toTime;
+      delete updates.accessSchedule;
+    }
+
+    return visitorRepository.updateById(visitorId, updates);
+  }
+
+  /**
+   * Resident revokes a trusted pass immediately.
+   */
+  async revokeTrustedVisitor(visitorId, residentUser) {
+    const visitor = await visitorRepository.findById(visitorId);
+    if (!visitor) throw AppError.notFound("Trusted visitor record not found.");
+    if (!visitor.isTrusted) throw AppError.badRequest("This is not a trusted visitor pass.");
+
+    const hostId = visitor.host?._id?.toString() || visitor.host?.toString();
+    if (hostId !== residentUser._id.toString()) {
+      throw AppError.forbidden("You can only revoke your own trusted visitors.");
+    }
+    if (["expired", "rejected"].includes(visitor.status)) {
+      throw AppError.badRequest("This pass is already inactive.");
+    }
+
+    return visitorRepository.updateById(visitorId, {
+      status: "expired",
+      validUntil: new Date(), // force-expire now
+    });
+  }
+
+  /**
+   * Resident lists all their trusted visitor passes.
+   */
+  async getMyTrustedVisitors(residentUser, { activeOnly = false } = {}) {
+    const filters = {};
+    if (activeOnly) {
+      filters.status = { $nin: ["expired", "rejected"] };
+    }
+    return visitorRepository.findTrustedByHost(residentUser._id, filters);
+  }
+
+  /**
+   * Security guard: look up a trusted pass by phone or name.
+   * Returns matching passes so the guard can confirm identity and auto-enter.
+   */
+  async lookupTrustedVisitor(societyId, { phone, name }) {
+    if (!phone && !name) {
+      throw AppError.badRequest("Provide phone or name to look up a trusted visitor.");
+    }
+    return visitorRepository.findTrustedBySociety(societyId, { phone, name });
+  }
+
+  /**
+   * Security guard: auto-entry for a trusted visitor.
+   * Checks schedule window, increments entryCount, sends silent log.
+   * No resident push notification — only a daily digest (handled by job).
+   */
+  async trustedVisitorEntry(visitorId, securityUser) {
+    const visitor = await visitorRepository.findById(visitorId);
+    if (!visitor) throw AppError.notFound("Trusted visitor record not found.");
+    if (!visitor.isTrusted) throw AppError.badRequest("This is not a trusted visitor pass.");
+
+    const societyId = this._getSocietyId(securityUser);
+    if (visitor.society.toString() !== societyId?.toString()) {
+      throw AppError.forbidden("Access denied.");
+    }
+
+    // Check pass validity
+    if (visitor.status === "expired") throw AppError.badRequest("This trusted pass has expired.");
+    if (visitor.status === "rejected") throw AppError.badRequest("This trusted pass has been revoked.");
+    if (visitor.validUntil && new Date() > visitor.validUntil) {
+      await visitorRepository.updateById(visitorId, { status: "expired" });
+      throw AppError.badRequest("This trusted pass has expired.");
+    }
+
+    // Check schedule window
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 Sun … 6 Sat
+    const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+    const schedule = visitor.accessSchedule;
+    const allowedDays = schedule?.days ?? [0, 1, 2, 3, 4, 5, 6];
+    const fromTime   = schedule?.fromTime ?? "00:00";
+    const toTime     = schedule?.toTime   ?? "23:59";
+
+    if (!allowedDays.includes(dayOfWeek)) {
+      throw AppError.badRequest(
+        `Entry not allowed today. Permitted days: ${allowedDays.map(d => ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d]).join(", ")}.`
+      );
+    }
+    if (currentTime < fromTime || currentTime > toTime) {
+      throw AppError.badRequest(
+        `Entry not allowed at this time. Permitted window: ${fromTime}–${toTime}.`
+      );
+    }
+
+    const updated = await visitorRepository.recordTrustedEntry(visitorId);
+    return updated;
   }
 
   // ─── Listing ───────────────────────────────────────────────────────────────

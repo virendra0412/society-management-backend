@@ -1,5 +1,5 @@
 const Joi = require("joi");
-const { VISIT_PURPOSES } = require("../models/visitor.model");
+const { VISIT_PURPOSES, TRUSTED_VISITOR_CATEGORIES, TRUSTED_PASS_TYPES } = require("../models/visitor.model");
 
 // ─── Visitor Validators ────────────────────────────────────────────────────────
 const visitor = {
@@ -48,6 +48,57 @@ const visitor = {
         "string.pattern.base": "OTP must contain only digits",
       }),
   }),
+
+  // Resident registering a trusted/frequent visitor (Flow C)
+  registerTrusted: Joi.object({
+    name: Joi.string().min(2).max(100).trim().required(),
+    phone: Joi.string()
+      .pattern(/^\+?[0-9]{7,15}$/)
+      .optional()
+      .messages({ "string.pattern.base": "Invalid phone number" }),
+    vehicleNumber: Joi.string().max(20).trim().uppercase().optional().allow(""),
+    category: Joi.string().valid(...TRUSTED_VISITOR_CATEGORIES).required().messages({
+      "any.required": "Category is required (e.g. Maid, Cook, Driver)",
+    }),
+    passType: Joi.string().valid(...TRUSTED_PASS_TYPES).default("monthly"),
+    note: Joi.string().max(300).trim().optional().allow(""),
+    idProofUrl: Joi.string().uri().optional().allow(""),
+    accessSchedule: Joi.object({
+      // 0=Sun, 1=Mon, …, 6=Sat
+      days: Joi.array()
+        .items(Joi.number().integer().min(0).max(6))
+        .min(1)
+        .optional()
+        .messages({ "array.min": "At least one day must be allowed" }),
+      fromTime: Joi.string()
+        .pattern(/^([01]\d|2[0-3]):[0-5]\d$/)
+        .optional()
+        .messages({ "string.pattern.base": "fromTime must be HH:MM (e.g. 07:00)" }),
+      toTime: Joi.string()
+        .pattern(/^([01]\d|2[0-3]):[0-5]\d$/)
+        .optional()
+        .messages({ "string.pattern.base": "toTime must be HH:MM (e.g. 10:00)" }),
+    }).optional(),
+  }),
+
+  // Resident updating a trusted pass
+  updateTrusted: Joi.object({
+    name: Joi.string().min(2).max(100).trim(),
+    phone: Joi.string()
+      .pattern(/^\+?[0-9]{7,15}$/)
+      .allow("")
+      .messages({ "string.pattern.base": "Invalid phone number" }),
+    vehicleNumber: Joi.string().max(20).trim().uppercase().allow(""),
+    category: Joi.string().valid(...TRUSTED_VISITOR_CATEGORIES),
+    passType: Joi.string().valid(...TRUSTED_PASS_TYPES),
+    note: Joi.string().max(300).trim().allow(""),
+    idProofUrl: Joi.string().uri().allow(""),
+    accessSchedule: Joi.object({
+      days: Joi.array().items(Joi.number().integer().min(0).max(6)).min(1),
+      fromTime: Joi.string().pattern(/^([01]\d|2[0-3]):[0-5]\d$/),
+      toTime: Joi.string().pattern(/^([01]\d|2[0-3]):[0-5]\d$/),
+    }),
+  }).min(1),
 };
 
 // ─── Maintenance Validators ────────────────────────────────────────────────────
