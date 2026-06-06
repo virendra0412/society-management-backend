@@ -1,9 +1,19 @@
 const issueRepository = require("../repositories/issue.repository");
+const userRepository  = require("../repositories/user.repository");
 const AppError = require("../utils/AppError");
 const { parsePagination, buildPaginationMeta, parseSort } = require("../utils/pagination");
 const { uploadToCloudinary } = require("../utils/cloudinary");
+const { sendPushNotification } = require("../utils/notification");
 
 const ALLOWED_SORT_FIELDS = ["createdAt", "priority", "status", "updatedAt"];
+
+// Human-readable labels for issue statuses
+const STATUS_LABELS = {
+  open:        "Open",
+  in_progress: "In Progress",
+  resolved:    "Resolved",
+  closed:      "Closed",
+};
 
 class IssueService {
   async createIssue(data, user) {
@@ -15,7 +25,7 @@ class IssueService {
     });
   }
 
-  // ── NEW: Upload photos for an issue ───────────────────────────────────────
+  // ── Upload photos for an issue ─────────────────────────────────────────────
   async uploadPhoto(issueId, file, user) {
     if (!file) throw AppError.badRequest("No image file provided.");
 
@@ -48,7 +58,7 @@ class IssueService {
     const sort = parseSort(query.sort, ALLOWED_SORT_FIELDS);
 
     const filters = {};
-    if (query.status) filters.status = query.status;
+    if (query.status)   filters.status   = query.status;
     if (query.category) filters.category = query.category;
     if (query.priority) filters.priority = query.priority;
     if (query.isEscalated === "true") filters.isEscalated = true;
@@ -90,10 +100,34 @@ class IssueService {
       }
     }
 
-    return issueRepository.updateById(issueId, updates);
+    const updated = await issueRepository.updateById(issueId, updates);
+
+    // Notify the reporter when an admin changes the status
+    if (user.role === "admin" && updates.status && updates.status !== issue.status) {
+      setImmediate(async () => {
+        try {
+          const reporter = await userRepository.findByIdWithFcm(issue.reporter._id || issue.reporter);
+          if (reporter?.fcmToken) {
+            const label = STATUS_LABELS[updates.status] || updates.status;
+            await sendPushNotification(
+              [reporter.fcmToken],
+              {
+                title: "🔧 Issue Update",
+                body:  `Your issue "${issue.title}" has been marked as ${label}.`,
+              },
+              { type: "issue_update", issueId: issueId.toString(), status: updates.status }
+            );
+          }
+        } catch (_) {
+          // Never crash the request if notification fails
+        }
+      });
+    }
+
+    return updated;
   }
 
-  // ── NEW: Assign issue to an external vendor ─────────────────────────────
+  // ── Assign issue to an external vendor ────────────────────────────────────
   async assignVendor(issueId, vendorData, adminUser) {
     const issue = await issueRepository.findById(issueId);
     if (!issue) throw AppError.notFound("Issue not found.");

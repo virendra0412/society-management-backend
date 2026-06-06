@@ -3,7 +3,7 @@ const noticeRepository  = require("../repositories/notice.repository");
 const pollRepository    = require("../repositories/poll.repository");
 const contactRepository = require("../repositories/contact.repository");
 const userRepository    = require("../repositories/user.repository");
-const { notifyNewNotice } = require("../utils/notification");
+const { notifyNewNotice, sendPushNotification } = require("../utils/notification");
 const AppError = require("../utils/AppError");
 const { parsePagination, buildPaginationMeta, parseSort } = require("../utils/pagination");
 
@@ -157,11 +157,33 @@ class NoticeService {
 class PollService {
   async create(data, user) {
     const societyId = user.society?._id || user.society;
-    return pollRepository.create({
+
+    const poll = await pollRepository.create({
       ...data,
       society: societyId,
       createdBy: user._id,
     });
+
+    // ── ADDED: Notify all residents that a new poll is live (fire-and-forget)
+    setImmediate(async () => {
+      try {
+        const tokens = await userRepository.getFcmTokensBySociety(societyId);
+        if (tokens.length > 0) {
+          await sendPushNotification(
+            tokens,
+            {
+              title: "🗳️ New Poll",
+              body:  `"${poll.question}" — Cast your vote now!`,
+            },
+            { type: "new_poll", pollId: poll._id.toString() }
+          );
+        }
+      } catch (_) {
+        // Notification failure must never affect the API response
+      }
+    });
+
+    return poll;
   }
 
   async getAll(societyId, query, userId) {
