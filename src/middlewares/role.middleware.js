@@ -20,9 +20,7 @@ const _getEffectivePermission = (req, module) => {
 
   // Fallback: scan memberships for the active society
   const societyId = req.societyId;
-  const membership = user.memberships?.find(
-    (m) => m.society?.toString() === societyId?.toString() && m.isActive
-  );
+  const membership = user.getMembership?.(societyId);
   if (!membership) return "none";
   if (membership.role === "admin") return "full";
 

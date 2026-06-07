@@ -125,9 +125,10 @@ class VisitorService {
       if (!host) {
         throw AppError.notFound(`No approved resident found for flat "${data.hostFlat}".`);
       }
-      const membership = (host.memberships || []).find((m) =>
-        m.society?.toString() === societyId?.toString() && m.isActive && m.isApproved
-      );
+      const membership = (host.memberships || []).find((m) => {
+        const memberSocietyId = (m.society?._id || m.society)?.toString();
+        return memberSocietyId === societyId?.toString() && m.isActive && m.isApproved;
+      });
       hostFlat = membership?.flat || data.hostFlat.trim();
     }
 

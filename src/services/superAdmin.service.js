@@ -302,10 +302,11 @@ class SuperAdminService {
 
     const newAdmin = await User.findById(newAdminUserId);
     if (!newAdmin) throw AppError.notFound("Target user not found.");
-    if (newAdmin.society?.toString() !== societyId.toString()) {
+    const membership = newAdmin.getMembership(societyId);
+    if (!membership) {
       throw AppError.badRequest("Target user does not belong to this society.");
     }
-    if (!newAdmin.isApproved || !newAdmin.isActive) {
+    if (!membership.isApproved || !newAdmin.isActive) {
       throw AppError.badRequest("Target user must be an active, approved member.");
     }
 

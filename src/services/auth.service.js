@@ -142,9 +142,7 @@ class AuthService {
     if (!user) throw AppError.notFound("User not found.");
 
     // Check if already a member
-    const existing = user.memberships.find(
-      (m) => m.society.toString() === society._id.toString()
-    );
+    const existing = user.getMembership(society._id);
     if (existing) {
       throw AppError.conflict("You are already a member of this society.");
     }

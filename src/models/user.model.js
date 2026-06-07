@@ -17,6 +17,11 @@ const ROLE_DEFAULT_PERMISSIONS = Object.freeze({
   vendor:    { visitors: "none",  maintenance: "none", issues: "read", notices: "none", parking: "none", amenities: "none", residents: "none" },
 });
 
+const refId = (value) => {
+  if (!value) return null;
+  return (value._id || value).toString();
+};
+
 // ─── Sub-schema: Family Member ─────────────────────────────────────────────────
 const familyMemberSchema = new mongoose.Schema(
   {
@@ -167,7 +172,7 @@ const userSchema = new mongoose.Schema(
 userSchema.virtual("activeMembership").get(function () {
   if (!this.activeSocietyId) return null;
   return this.memberships.find(
-    (m) => m.society.toString() === this.activeSocietyId.toString() && m.isActive
+    (m) => refId(m.society) === refId(this.activeSocietyId) && m.isActive
   ) || null;
 });
 
@@ -248,7 +253,7 @@ userSchema.methods.createPasswordResetOTP = function () {
  */
 userSchema.methods.getMembership = function (societyId) {
   return this.memberships.find(
-    (m) => m.society.toString() === societyId.toString() && m.isActive
+    (m) => refId(m.society) === refId(societyId) && m.isActive
   ) || null;
 };
 
