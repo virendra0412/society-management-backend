@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Help = require("../models/help.model");
 
 const AUTHOR_SELECT = "name flat role";
@@ -15,7 +16,10 @@ class HelpRepository {
   }
 
   async findBySociety(societyId, filters = {}, { skip, limit }, sort) {
-    const query = { society: societyId, ...filters };
+    const normalizedSocietyId = mongoose.Types.ObjectId.isValid(societyId)
+      ? new mongoose.Types.ObjectId(societyId)
+      : societyId;
+    const query = { society: normalizedSocietyId, ...filters };
 
     // Use aggregate to compute replyCount server-side without sending
     // the full replies array to the client (which could be large).
