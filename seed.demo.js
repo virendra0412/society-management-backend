@@ -143,7 +143,7 @@ async function seed() {
     enabledModules: {
       notices: true, polls: true, contacts: true,
       issues: true, visitors: true, maintenance: true, amenities: true,
-      events: false, parking: false, community: false, analytics: false, multilang: false,
+      events: true, parking: true, community: true, analytics: false, multilang: false,
     },
     moduleCharges: {
       issues: 199, visitors: 350, maintenance: 499, amenities: 249,
@@ -151,7 +151,7 @@ async function seed() {
     },
     upgradeRequests: [
       { module: "analytics", requestedAt: daysAgo(3), status: "pending" },
-      { module: "parking",   requestedAt: daysAgo(1), status: "pending" },
+      { module: "multilang", requestedAt: daysAgo(1), status: "pending" },
     ],
   });
 

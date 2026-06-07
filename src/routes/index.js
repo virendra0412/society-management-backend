@@ -2,6 +2,7 @@ const express = require("express");
 const router  = express.Router();
 
 const { requireModule } = require("../middlewares/module.middleware");
+const { protect, requireSociety } = require("../middlewares/auth.middleware");
 
 // ─── Super Admin Routes ───────────────────────────────────────────────────────
 const superAdminRoutes = require("./superAdmin.routes");
@@ -39,13 +40,13 @@ router.use("/polls",    requireModule("polls"),    pollRouter);
 router.use("/contacts", requireModule("contacts"), contactRouter);
 
 // Paid modules — gated by feature flag
-router.use("/issues",      requireModule("issues"),      issueRoutes);
-router.use("/help",        requireModule("community"),   helpRouter);       // community module
-router.use("/visitors",    requireModule("visitors"),    visitorRoutes);
-router.use("/maintenance", requireModule("maintenance"), maintenanceRoutes);
-router.use("/amenities",   requireModule("amenities"),   amenityRoutes);
-router.use("/events",      requireModule("events"),      eventRoutes);
-router.use("/parking",     requireModule("parking"),     parkingRoutes);
+router.use("/issues",      protect, requireSociety, requireModule("issues"),      issueRoutes);
+router.use("/help",        protect, requireSociety, requireModule("community"),   helpRouter);       // community module
+router.use("/visitors",    protect, requireSociety, requireModule("visitors"),    visitorRoutes);
+router.use("/maintenance", protect, requireSociety, requireModule("maintenance"), maintenanceRoutes);
+router.use("/amenities",   protect, requireSociety, requireModule("amenities"),   amenityRoutes);
+router.use("/events",      protect, requireSociety, requireModule("events"),      eventRoutes);
+router.use("/parking",     protect, requireSociety, requireModule("parking"),     parkingRoutes);
 
 // Society module status + upgrade requests
 router.use("/modules", moduleRoutes);
