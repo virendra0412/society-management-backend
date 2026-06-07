@@ -69,22 +69,24 @@ class UserService {
   async approveMember(adminSocietyId, userId) {
     const target = await userRepository.findById(userId);
     if (!target) throw AppError.notFound("User not found.");
-    if (target.society?.toString() !== adminSocietyId?.toString()) {
+    const membership = target.getMembership(adminSocietyId);
+    if (!membership) {
       throw AppError.forbidden("User does not belong to your society.");
     }
-    if (target.isApproved) {
+    if (membership.isApproved) {
       throw AppError.badRequest("Member is already approved.");
     }
-    return userRepository.approveMember(userId);
+    return userRepository.approveMember(userId, adminSocietyId);
   }
 
   async rejectMember(adminSocietyId, userId) {
     const target = await userRepository.findById(userId);
     if (!target) throw AppError.notFound("User not found.");
-    if (target.society?.toString() !== adminSocietyId?.toString()) {
+    const membership = target.getMembership(adminSocietyId);
+    if (!membership) {
       throw AppError.forbidden("User does not belong to your society.");
     }
-    return userRepository.rejectMember(userId);
+    return userRepository.rejectMember(userId, adminSocietyId);
   }
 
   // ── FCM token ──────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ const userRepository = require("../repositories/user.repository");
 
 class VisitorService {
   _getSocietyId(user) {
-    return user.society?._id || user.society;
+    return user.activeSocietyId?._id || user.activeSocietyId || user.society?._id || user.society;
   }
 
   // ─── Resident: Create Pre-Approved Invite ──────────────────────────────────
@@ -103,22 +103,32 @@ class VisitorService {
     if (data.hostId) {
       // Verify host belongs to this society
       host = await userRepository.findByIdWithFcm(data.hostId);
-      if (!host || host.society?.toString() !== societyId?.toString()) {
+      const membership = host?.getMembership?.(societyId);
+      if (!host || !membership?.isApproved) {
         throw AppError.notFound("Resident not found in this society.");
       }
-      hostFlat = host.flat;
+      hostFlat = membership.flat;
     } else if (data.hostFlat) {
       // Look up resident by flat number — convenient for security staff
       const User = require("../models/user.model");
       host = await User.findOne({
-        society: societyId,
-        flat: data.hostFlat.trim(),
-        isApproved: true,
+        memberships: {
+          $elemMatch: {
+            society: societyId,
+            flat: data.hostFlat.trim(),
+            isApproved: true,
+            isActive: true,
+          },
+        },
+        isActive: true,
       }).select("+fcmToken").lean();
       if (!host) {
         throw AppError.notFound(`No approved resident found for flat "${data.hostFlat}".`);
       }
-      hostFlat = host.flat;
+      const membership = (host.memberships || []).find((m) =>
+        m.society?.toString() === societyId?.toString() && m.isActive && m.isApproved
+      );
+      hostFlat = membership?.flat || data.hostFlat.trim();
     }
 
     const visitor = await visitorRepository.create({

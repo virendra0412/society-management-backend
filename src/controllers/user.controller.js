@@ -56,13 +56,13 @@ class UserController {
 
   // ── Admin: Member Approval ─────────────────────────────────────────────────
   async getPendingMembers(req, res) {
-    const societyId = req.user.society?._id || req.user.society;
+    const societyId = req.societyId;
     const members = await userService.getPendingMembers(societyId);
     return sendSuccess(res, { data: { members } });
   }
 
   async approveMember(req, res) {
-    const societyId = req.user.society?._id || req.user.society;
+    const societyId = req.societyId;
     const user = await userService.approveMember(societyId, req.params.userId);
     return sendSuccess(res, {
       message: "Member approved.",
@@ -71,7 +71,7 @@ class UserController {
   }
 
   async rejectMember(req, res) {
-    const societyId = req.user.society?._id || req.user.society;
+    const societyId = req.societyId;
     await userService.rejectMember(societyId, req.params.userId);
     return sendSuccess(res, { message: "Member rejected and account deactivated." });
   }
