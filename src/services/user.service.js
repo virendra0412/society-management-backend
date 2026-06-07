@@ -91,6 +91,63 @@ class UserService {
   async updateFcmToken(userId, fcmToken) {
     return userRepository.updateFcmToken(userId, fcmToken);
   }
+
+  // ── Committee management ───────────────────────────────────────────────────
+  async getCommitteeMembers(societyId) {
+    return userRepository.findCommitteeMembers(societyId);
+  }
+
+  /**
+   * Assign or update a committee role on a user's membership for the given society.
+   * - role must be one of: admin, committee, security
+   * - permissions is an optional map of module → level overrides
+   * - committeeTitle is an optional display label (e.g. "Treasurer")
+   * - Auto-seeds default permissions for the role if not explicitly provided
+   */
+  async assignCommitteeRole(adminSocietyId, targetUserId, { role, permissions, committeeTitle }) {
+    const { ROLES, ROLE_DEFAULT_PERMISSIONS } = require("../models/user.model");
+
+    const COMMITTEE_ROLES = ["admin", "committee", "security"];
+    if (!COMMITTEE_ROLES.includes(role)) {
+      throw AppError.badRequest(`Invalid committee role. Must be one of: ${COMMITTEE_ROLES.join(", ")}`);
+    }
+
+    const target = await userRepository.findById(targetUserId);
+    if (!target) throw AppError.notFound("User not found.");
+
+    const membership = target.getMembership(adminSocietyId);
+    if (!membership) throw AppError.forbidden("User is not a member of this society.");
+    if (!membership.isApproved) throw AppError.badRequest("User must be approved before assigning a committee role.");
+
+    // Seed defaults for the target role, then apply any explicit overrides
+    const basePerms = { ...ROLE_DEFAULT_PERMISSIONS[role] };
+    const mergedPerms = permissions ? { ...basePerms, ...permissions } : basePerms;
+
+    return userRepository.assignCommitteeRole(targetUserId, adminSocietyId, {
+      role,
+      permissions: mergedPerms,
+      committeeTitle: committeeTitle || null,
+    });
+  }
+
+  /**
+   * Demote a committee member back to resident.
+   * Cannot demote yourself (prevents lockout).
+   */
+  async removeCommitteeRole(adminSocietyId, adminUserId, targetUserId) {
+    if (adminUserId.toString() === targetUserId.toString()) {
+      throw AppError.badRequest("You cannot remove your own committee role.");
+    }
+
+    const target = await userRepository.findById(targetUserId);
+    if (!target) throw AppError.notFound("User not found.");
+
+    const membership = target.getMembership(adminSocietyId);
+    if (!membership) throw AppError.forbidden("User is not a member of this society.");
+    if (membership.role === "resident") throw AppError.badRequest("User is already a resident.");
+
+    return userRepository.removeCommitteeRole(targetUserId, adminSocietyId);
+  }
 }
 
 module.exports = new UserService();

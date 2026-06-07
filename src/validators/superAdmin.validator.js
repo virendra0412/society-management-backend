@@ -78,3 +78,32 @@ module.exports = {
   suspendSociety,
   resetAdminPassword,
 };
+
+// ── Module Management ─────────────────────────────────────────────────────────
+
+const PAID_MODULE_KEYS = [
+  "issues", "visitors", "maintenance", "amenities",
+  "events", "parking", "community", "analytics", "multilang",
+];
+
+const moduleToggleObj = Joi.object().pattern(
+  Joi.string().valid(...PAID_MODULE_KEYS),
+  Joi.boolean()
+);
+
+const moduleChargesObj = Joi.object().pattern(
+  Joi.string().valid(...PAID_MODULE_KEYS),
+  Joi.number().min(0).max(9999)
+);
+
+const updateModules = Joi.object({
+  modules: moduleToggleObj.optional(),
+  charges: moduleChargesObj.optional(),
+}).min(1);
+
+const applyBundle = Joi.object({
+  bundle:     Joi.string().valid("starter", "operations", "fullstack").required(),
+  replaceAll: Joi.boolean().default(false),
+});
+
+Object.assign(module.exports, { updateModules, applyBundle });

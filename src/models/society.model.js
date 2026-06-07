@@ -1,6 +1,96 @@
 const mongoose = require("mongoose");
-const crypto = require("crypto");
+const crypto   = require("crypto");
 
+// ─── Module catalogue (single source of truth) ────────────────────────────────
+// Keys must match across: model, middleware, validator, frontend.
+const MODULE_KEYS = Object.freeze([
+  "notices",      // FREE — always on
+  "polls",        // FREE — always on
+  "contacts",     // FREE — always on
+  "issues",       // ₹199/mo
+  "visitors",     // ₹399/mo
+  "maintenance",  // ₹499/mo
+  "amenities",    // ₹249/mo
+  "events",       // ₹199/mo
+  "parking",      // ₹249/mo
+  "community",    // ₹299/mo
+  "analytics",    // ₹399/mo
+  "multilang",    // ₹199/mo
+]);
+
+const FREE_MODULES  = Object.freeze(["notices", "polls", "contacts"]);
+const PAID_MODULES  = Object.freeze(MODULE_KEYS.filter(k => !FREE_MODULES.includes(k)));
+
+// Default prices — SA can negotiate custom amounts per society via moduleCharges
+const DEFAULT_MODULE_PRICES = Object.freeze({
+  issues:      199,
+  visitors:    399,
+  maintenance: 499,
+  amenities:   249,
+  events:      199,
+  parking:     249,
+  community:   299,
+  analytics:   399,
+  multilang:   199,
+});
+
+// Pre-defined bundles for reference (SA uses these during onboarding wizard)
+const MODULE_BUNDLES = Object.freeze({
+  starter: {
+    label: "Starter Bundle",
+    price: 599,
+    modules: ["issues", "visitors"],
+  },
+  operations: {
+    label: "Operations Bundle",
+    price: 999,
+    modules: ["issues", "visitors", "maintenance", "amenities"],
+  },
+  fullstack: {
+    label: "Full Stack Bundle",
+    price: 1799,
+    modules: PAID_MODULES,
+  },
+});
+
+// ─── enabledModules sub-schema ────────────────────────────────────────────────
+const enabledModulesSchema = new mongoose.Schema(
+  {
+    // Free modules — always true, never charged
+    notices:     { type: Boolean, default: true  },
+    polls:       { type: Boolean, default: true  },
+    contacts:    { type: Boolean, default: true  },
+    // Paid modules — off by default, SA toggles on
+    issues:      { type: Boolean, default: false },
+    visitors:    { type: Boolean, default: false },
+    maintenance: { type: Boolean, default: false },
+    amenities:   { type: Boolean, default: false },
+    events:      { type: Boolean, default: false },
+    parking:     { type: Boolean, default: false },
+    community:   { type: Boolean, default: false },
+    analytics:   { type: Boolean, default: false },
+    multilang:   { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+// ─── moduleCharges sub-schema (SA-negotiated prices) ─────────────────────────
+const moduleChargesSchema = new mongoose.Schema(
+  {
+    issues:      { type: Number, default: DEFAULT_MODULE_PRICES.issues      },
+    visitors:    { type: Number, default: DEFAULT_MODULE_PRICES.visitors    },
+    maintenance: { type: Number, default: DEFAULT_MODULE_PRICES.maintenance },
+    amenities:   { type: Number, default: DEFAULT_MODULE_PRICES.amenities   },
+    events:      { type: Number, default: DEFAULT_MODULE_PRICES.events      },
+    parking:     { type: Number, default: DEFAULT_MODULE_PRICES.parking     },
+    community:   { type: Number, default: DEFAULT_MODULE_PRICES.community   },
+    analytics:   { type: Number, default: DEFAULT_MODULE_PRICES.analytics   },
+    multilang:   { type: Number, default: DEFAULT_MODULE_PRICES.multilang   },
+  },
+  { _id: false }
+);
+
+// ─── Society Schema ───────────────────────────────────────────────────────────
 const societySchema = new mongoose.Schema(
   {
     name: {
@@ -14,72 +104,75 @@ const societySchema = new mongoose.Schema(
       trim: true,
       maxlength: [300, "Address too long"],
     },
-    city: {
-      type: String,
-      trim: true,
-    },
-    state: {
-      type: String,
-      trim: true,
-    },
+    city:  { type: String, trim: true },
+    state: { type: String, trim: true },
+
     // Admin (chairman/secretary) who manages the society
     admin: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      type:     mongoose.Schema.Types.ObjectId,
+      ref:      "User",
       required: true,
     },
-    // Unique 8-character alphanumeric join code residents use to request membership
+
+    // Unique 8-char alphanumeric join code
     joinCode: {
-      type: String,
-      unique: true,
+      type:    String,
+      unique:  true,
       uppercase: true,
     },
-    // Toggle open/invite-only registration
     joinMode: {
-      type: String,
-      enum: ["open", "approval"],
+      type:    String,
+      enum:    ["open", "approval"],
       default: "approval",
     },
-    totalUnits: {
-      type: Number,
-      default: 0,
-    },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
+    totalUnits: { type: Number, default: 0 },
+    isActive:   { type: Boolean, default: true },
 
-    // ── Super Admin fields (added for multi-society platform) ──────────────────
-    //
-    // approvalStatus: reflects where this society is in the onboarding pipeline.
-    //   "approved" is the default so that societies created via the old direct
-    //   path (seed / admin self-creation) continue to work without migration.
-    //
+    // ── Super Admin fields ────────────────────────────────────────────────────
     approvalStatus: {
       type:    String,
       enum:    ["pending", "approved", "rejected"],
       default: "approved",
       index:   true,
     },
-
-    // Reference to the SocietyApplication that led to this society being created.
-    // Null for societies created via the old seed / direct flow.
     application: {
       type:    mongoose.Schema.Types.ObjectId,
       ref:     "SocietyApplication",
       default: null,
     },
-
-    // Which super admin approved / created this society
     registeredBy: {
       type:    mongoose.Schema.Types.ObjectId,
       ref:     "SuperAdmin",
       default: null,
     },
+
+    // ── Module Management (Section 06) ────────────────────────────────────────
+    // Which features this society has access to
+    enabledModules: {
+      type:    enabledModulesSchema,
+      default: () => ({}),
+    },
+    // Negotiated per-module pricing (may differ from defaults)
+    moduleCharges: {
+      type:    moduleChargesSchema,
+      default: () => ({}),
+    },
+    // Upgrade requests submitted by society admin, pending SA review
+    upgradeRequests: [
+      {
+        module:      { type: String, enum: PAID_MODULES },
+        requestedAt: { type: Date, default: () => new Date() },
+        status:      { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
+        resolvedAt:  { type: Date, default: null },
+        resolvedBy:  { type: mongoose.Schema.Types.ObjectId, ref: "SuperAdmin", default: null },
+        note:        { type: String, maxlength: 300, default: null },
+      },
+    ],
   },
   {
     timestamps: true,
     toJSON: {
+      virtuals: true,
       transform(doc, ret) {
         delete ret.__v;
         return ret;
@@ -88,13 +181,21 @@ const societySchema = new mongoose.Schema(
   }
 );
 
-// ─── Generate a unique join code before first save ─────────────────────────
+// ─── Virtual: calculated monthly total for enabled paid modules ───────────────
+societySchema.virtual("monthlyModuleTotal").get(function () {
+  if (!this.enabledModules || !this.moduleCharges) return 0;
+  return PAID_MODULES.reduce((sum, key) => {
+    return sum + (this.enabledModules[key] ? (this.moduleCharges[key] || 0) : 0);
+  }, 0);
+});
+
+// ─── Generate join code before first save ────────────────────────────────────
 societySchema.pre("validate", function (next) {
   if (this.isNew && !this.joinCode) {
-    this.joinCode = crypto.randomBytes(4).toString("hex").toUpperCase(); // e.g. "A3F0B2C1"
+    this.joinCode = crypto.randomBytes(4).toString("hex").toUpperCase();
   }
   next();
 });
 
 const Society = mongoose.model("Society", societySchema);
-module.exports = Society;
+module.exports = { Society, MODULE_KEYS, FREE_MODULES, PAID_MODULES, DEFAULT_MODULE_PRICES, MODULE_BUNDLES };

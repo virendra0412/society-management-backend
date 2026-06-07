@@ -8,16 +8,18 @@ const { signAccessToken, signRefreshToken, verifyRefreshToken } = require("../ut
 class AuthService {
   /**
    * Build JWT payload from user + a specific societyId context.
-   * role and flat are resolved from the matching membership.
+   * role, permissions, flat and committeeTitle are resolved from the matching membership.
    */
   _buildTokenPayload(user, societyId) {
     const membership = societyId ? user.getMembership(societyId) : null;
     return {
-      userId:    user._id.toString(),
-      email:     user.email,
-      societyId: societyId ? societyId.toString() : null,
-      role:      membership?.role || null,
-      flat:      membership?.flat || null,
+      userId:         user._id.toString(),
+      email:          user.email,
+      societyId:      societyId ? societyId.toString() : null,
+      role:           membership?.role || null,
+      flat:           membership?.flat || null,
+      committeeTitle: membership?.committeeTitle || null,
+      permissions:    membership?.permissions || null,
     };
   }
 

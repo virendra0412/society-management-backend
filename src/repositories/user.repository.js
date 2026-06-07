@@ -200,6 +200,75 @@ class UserRepository {
     return User.findByIdAndUpdate(userId, { fcmToken }, { new: true }).exec();
   }
 
+  // ── Committee management ───────────────────────────────────────────────────
+
+  /**
+   * List all committee members (non-resident roles) in a society.
+   */
+  async findCommitteeMembers(societyId) {
+    return User.find({
+      memberships: {
+        $elemMatch: {
+          society: societyId,
+          isActive: true,
+          isApproved: true,
+          role: { $in: ["admin", "committee", "security"] },
+        },
+      },
+      isActive: true,
+    })
+      .select("name email phone avatar memberships")
+      .sort({ name: 1 })
+      .exec();
+  }
+
+  /**
+   * Assign or update committee role + permissions for a user in a society.
+   * Sets role, permissions, and committeeTitle on the matching membership.
+   */
+  async assignCommitteeRole(userId, societyId, { role, permissions, committeeTitle }) {
+    const setObj = { "memberships.$.role": role };
+    if (committeeTitle !== undefined) setObj["memberships.$.committeeTitle"] = committeeTitle;
+
+    // Merge provided permissions into the membership
+    if (permissions && typeof permissions === "object") {
+      Object.entries(permissions).forEach(([module, level]) => {
+        setObj[`memberships.$.permissions.${module}`] = level;
+      });
+    }
+
+    return User.findOneAndUpdate(
+      { _id: userId, "memberships.society": societyId },
+      { $set: setObj },
+      { new: true, runValidators: true }
+    )
+      .populate("memberships.society", "name joinCode joinMode logo")
+      .exec();
+  }
+
+  /**
+   * Demote a committee member back to resident, clearing title + permissions.
+   */
+  async removeCommitteeRole(userId, societyId) {
+    const { ROLE_DEFAULT_PERMISSIONS } = require("../models/user.model");
+    const residentPerms = ROLE_DEFAULT_PERMISSIONS.resident;
+    const setObj = {
+      "memberships.$.role": "resident",
+      "memberships.$.committeeTitle": null,
+    };
+    Object.entries(residentPerms).forEach(([module, level]) => {
+      setObj[`memberships.$.permissions.${module}`] = level;
+    });
+
+    return User.findOneAndUpdate(
+      { _id: userId, "memberships.society": societyId },
+      { $set: setObj },
+      { new: true }
+    )
+      .populate("memberships.society", "name joinCode joinMode logo")
+      .exec();
+  }
+
   /**
    * Retrieve all non-null FCM tokens for approved members of a society.
    * Reads from memberships array.

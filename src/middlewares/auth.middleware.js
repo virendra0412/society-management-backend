@@ -29,10 +29,11 @@ const protect = async (req, res, next) => {
     throw AppError.unauthorized("Password was recently changed. Please log in again.");
   }
 
-  // societyId and role come from the JWT payload (active society context)
+  // societyId, role and permissions come from the JWT payload (active society context)
   req.user = user;
   req.societyId = decoded.societyId || null;
   req.role = decoded.role || null;
+  req.permissions = decoded.permissions || null;
 
   next();
 };

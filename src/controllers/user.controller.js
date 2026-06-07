@@ -80,14 +80,67 @@ class UserController {
   /**
    * PATCH /users/fcm-token
    * Body: { fcmToken: string }
-   *
-   * Frontend calls this on login and every app-open to keep the token fresh.
-   * Pass fcmToken: null to unregister (e.g. on logout).
    */
   async updateFcmToken(req, res) {
     const { fcmToken } = req.body;
     await userService.updateFcmToken(req.user._id, fcmToken || null);
     return sendSuccess(res, { message: "FCM token updated." });
+  }
+
+  // ── Committee Management ───────────────────────────────────────────────────
+
+  /**
+   * GET /users/committee
+   * Lists all committee members in the active society.
+   */
+  async getCommitteeMembers(req, res) {
+    const societyId = req.societyId;
+    const members = await userService.getCommitteeMembers(societyId);
+    return sendSuccess(res, { data: { members } });
+  }
+
+  /**
+   * POST /users/:userId/committee
+   * Body: { role, committeeTitle?, permissions? }
+   *
+   * Assigns or updates a committee role.
+   * Example body for Treasurer:
+   * {
+   *   "role": "committee",
+   *   "committeeTitle": "Treasurer",
+   *   "permissions": {
+   *     "maintenance": "full",
+   *     "residents": "read"
+   *   }
+   * }
+   */
+  async assignCommitteeRole(req, res) {
+    const societyId = req.societyId;
+    const { role, committeeTitle, permissions } = req.body;
+
+    const user = await userService.assignCommitteeRole(societyId, req.params.userId, {
+      role,
+      committeeTitle,
+      permissions,
+    });
+
+    return sendSuccess(res, {
+      message: "Committee role assigned successfully.",
+      data: { user },
+    });
+  }
+
+  /**
+   * DELETE /users/:userId/committee
+   * Demotes the user back to resident, clears permissions and title.
+   */
+  async removeCommitteeRole(req, res) {
+    const societyId = req.societyId;
+    const user = await userService.removeCommitteeRole(societyId, req.user._id, req.params.userId);
+    return sendSuccess(res, {
+      message: "Committee role removed. User is now a resident.",
+      data: { user },
+    });
   }
 }
 

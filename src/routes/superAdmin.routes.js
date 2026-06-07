@@ -108,3 +108,14 @@ router.get("/analytics/overview",           protectSuperAdmin, ctrl.getGlobalAna
 router.get("/analytics/societies/:id",      protectSuperAdmin, ctrl.getSocietyAnalytics);
 
 module.exports = router;
+
+// ── Module Management ──────────────────────────────────────────────────────────
+// GET  /superadmin/societies/:id/modules         get module status for a society
+// PATCH /superadmin/societies/:id/modules        toggle modules / set custom charges
+// POST  /superadmin/societies/:id/modules/bundle apply a pre-defined bundle
+// GET  /superadmin/modules/upgrade-requests      list all pending upgrade requests
+// POST  /api/v1/societies/:id/modules/request-upgrade  (resident-facing, handled in user routes)
+router.get   ("/societies/:id/modules",         protectSuperAdmin, ctrl.getModules);
+router.patch ("/societies/:id/modules",         protectSuperAdmin, validate(v.updateModules), ctrl.updateModules);
+router.post  ("/societies/:id/modules/bundle",  protectSuperAdmin, validate(v.applyBundle),   ctrl.applyBundle);
+router.get   ("/modules/upgrade-requests",      protectSuperAdmin, ctrl.listUpgradeRequests);

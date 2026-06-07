@@ -1,7 +1,9 @@
 const express = require("express");
-const router = express.Router();
+const router  = express.Router();
 
-// ─── Super Admin Routes ─────────────────────────────────────────────────────
+const { requireModule } = require("../middlewares/module.middleware");
+
+// ─── Super Admin Routes ───────────────────────────────────────────────────────
 const superAdminRoutes = require("./superAdmin.routes");
 
 // ─── Phase 1 Routes ───────────────────────────────────────────────────────────
@@ -22,26 +24,33 @@ const amenityRoutes     = require("./amenity.routes");
 const eventRoutes       = require("./event.routes");
 const parkingRoutes     = require("./parking.routes");
 
-// ─── Mount All Routes ─────────────────────────────────────────────────────────
-router.use("/auth",        authRoutes);
-router.use("/users",       userRoutes);
-router.use("/issues",      issueRoutes);
-router.use("/help",        helpRouter);
-router.use("/notices",     noticeRouter);
-router.use("/polls",       pollRouter);
-router.use("/contacts",    contactRouter);
+const moduleRoutes      = require("./module.routes");
 
-// Phase 2 — Visitor & Maintenance
-router.use("/visitors",    visitorRoutes);
-router.use("/maintenance", maintenanceRoutes);
+// ─── Mount Routes ─────────────────────────────────────────────────────────────
 
-// Phase 2 — Amenity, Events, Parking
-router.use("/amenities",   amenityRoutes);
-router.use("/events",      eventRoutes);
-router.use("/parking",     parkingRoutes);
+// Auth & user — no module gate
+router.use("/auth",     authRoutes);
+router.use("/users",    userRoutes);
+
+// Free modules — always available (requireModule skips these automatically,
+// but listed explicitly for clarity)
+router.use("/notices",  requireModule("notices"),  noticeRouter);
+router.use("/polls",    requireModule("polls"),    pollRouter);
+router.use("/contacts", requireModule("contacts"), contactRouter);
+
+// Paid modules — gated by feature flag
+router.use("/issues",      requireModule("issues"),      issueRoutes);
+router.use("/help",        requireModule("community"),   helpRouter);       // community module
+router.use("/visitors",    requireModule("visitors"),    visitorRoutes);
+router.use("/maintenance", requireModule("maintenance"), maintenanceRoutes);
+router.use("/amenities",   requireModule("amenities"),   amenityRoutes);
+router.use("/events",      requireModule("events"),      eventRoutes);
+router.use("/parking",     requireModule("parking"),     parkingRoutes);
+
+// Society module status + upgrade requests
+router.use("/modules", moduleRoutes);
 
 // Super Admin — multi-society platform management
-// All routes under /api/v1/superadmin
-router.use("/superadmin",  superAdminRoutes);
+router.use("/superadmin", superAdminRoutes);
 
 module.exports = router;

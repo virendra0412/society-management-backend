@@ -1,7 +1,7 @@
 const crypto    = require("crypto");
 const bcrypt    = require("bcryptjs");
 const repo      = require("../repositories/superAdmin.repository");
-const Society   = require("../models/society.model");
+const { Society, PAID_MODULES, FREE_MODULES, DEFAULT_MODULE_PRICES, MODULE_BUNDLES } = require("../models/society.model");
 const User      = require("../models/user.model");
 const { Subscription, PLAN_LIMITS } = require("../models/subscription.model");
 const AppError  = require("../utils/AppError");
@@ -116,6 +116,8 @@ class SuperAdminService {
     }
 
     // 1. Create Society (isActive: true by default)
+    // enabledModules defaults: free modules (notices/polls/contacts) are on,
+    // paid modules are off. SA can toggle them via the module management wizard.
     const society = await Society.create({
       name:       app.societyName,
       address:    app.address,
@@ -124,6 +126,10 @@ class SuperAdminService {
       totalUnits: app.totalUnits,
       joinMode:   "approval",
       isActive:   true,
+      enabledModules: {
+        notices: true, polls: true, contacts: true,
+        // all paid modules default to false (from schema defaults)
+      },
       // admin will be set after user is created
       admin:      new (require("mongoose").Types.ObjectId)(), // temp placeholder
     });
@@ -348,6 +354,182 @@ class SuperAdminService {
       repo.findSubscriptionBySociety(society._id),
     ]);
     return { society: { _id: society._id, name: society.name, city: society.city }, subscription, analytics };
+  }
+
+
+  // ─── Module Management (Section 06) ─────────────────────────────────────────
+
+  /**
+   * Get module status + monthly total for a society.
+   * Includes upgrade requests (pending).
+   */
+  async getModules(societyId) {
+    const society = await Society.findById(societyId, "enabledModules moduleCharges upgradeRequests name").lean();
+    if (!society) throw AppError.notFound("Society not found.");
+
+    const modules = {};
+    const allKeys = [...FREE_MODULES, ...PAID_MODULES];
+    for (const key of allKeys) {
+      modules[key] = {
+        enabled:  society.enabledModules?.[key] ?? FREE_MODULES.includes(key),
+        isFree:   FREE_MODULES.includes(key),
+        charge:   FREE_MODULES.includes(key) ? 0 : (society.moduleCharges?.[key] ?? DEFAULT_MODULE_PRICES[key] ?? 0),
+      };
+    }
+
+    const monthlyTotal = PAID_MODULES.reduce((sum, key) => {
+      return sum + (modules[key].enabled ? modules[key].charge : 0);
+    }, 0);
+
+    const pendingRequests = (society.upgradeRequests || []).filter(r => r.status === "pending");
+
+    return { societyName: society.name, modules, monthlyTotal, pendingRequests, bundles: MODULE_BUNDLES };
+  }
+
+  /**
+   * SA: toggle one or more modules for a society.
+   * Accepts { modules: { visitors: true, maintenance: false, ... }, charges: { visitors: 350 } }
+   */
+  async updateModules(societyId, { modules: moduleUpdates, charges: chargeUpdates }, superAdmin) {
+    const society = await Society.findById(societyId);
+    if (!society) throw AppError.notFound("Society not found.");
+
+    // Apply module toggles — validate keys, protect free modules
+    if (moduleUpdates && typeof moduleUpdates === "object") {
+      for (const [key, value] of Object.entries(moduleUpdates)) {
+        if (!PAID_MODULES.includes(key)) {
+          throw AppError.badRequest(`Module '${key}' is not a valid paid module or cannot be toggled.`);
+        }
+        society.enabledModules[key] = Boolean(value);
+
+        // Auto-resolve any pending upgrade request for this module
+        if (value === true) {
+          const req = society.upgradeRequests?.find(r => r.module === key && r.status === "pending");
+          if (req) {
+            req.status     = "approved";
+            req.resolvedAt = new Date();
+            req.resolvedBy = superAdmin._id;
+          }
+        }
+      }
+    }
+
+    // Apply custom charge overrides
+    if (chargeUpdates && typeof chargeUpdates === "object") {
+      for (const [key, value] of Object.entries(chargeUpdates)) {
+        if (!PAID_MODULES.includes(key)) {
+          throw AppError.badRequest(`Module '${key}' is not a valid paid module.`);
+        }
+        if (typeof value !== "number" || value < 0) {
+          throw AppError.badRequest(`Invalid charge value for '${key}'.`);
+        }
+        society.moduleCharges[key] = value;
+      }
+    }
+
+    await society.save();
+    console.log(`[SUPERADMIN] Modules updated for ${society.name} by ${superAdmin.email}`);
+
+    return {
+      enabledModules: society.enabledModules,
+      moduleCharges:  society.moduleCharges,
+      monthlyTotal:   society.monthlyModuleTotal,
+    };
+  }
+
+  /**
+   * SA: apply a named bundle to a society (starter / operations / fullstack).
+   * Disables modules not in the bundle unless they were already enabled.
+   * Set replaceAll=true to reset all paid modules to exactly the bundle.
+   */
+  async applyBundle(societyId, { bundle, replaceAll = false }, superAdmin) {
+    const bundleDef = MODULE_BUNDLES[bundle];
+    if (!bundleDef) {
+      throw AppError.badRequest(`Unknown bundle '${bundle}'. Valid options: ${Object.keys(MODULE_BUNDLES).join(", ")}.`);
+    }
+
+    const society = await Society.findById(societyId);
+    if (!society) throw AppError.notFound("Society not found.");
+
+    if (replaceAll) {
+      // Reset all paid modules to false, then enable bundle modules
+      for (const key of PAID_MODULES) {
+        society.enabledModules[key] = bundleDef.modules.includes(key);
+      }
+    } else {
+      // Additive: enable bundle modules without touching others
+      for (const key of bundleDef.modules) {
+        society.enabledModules[key] = true;
+      }
+    }
+
+    await society.save();
+    console.log(`[SUPERADMIN] Bundle '${bundle}' applied to ${society.name} by ${superAdmin.email} (replaceAll=${replaceAll})`);
+
+    return {
+      bundle:         bundleDef.label,
+      enabledModules: society.enabledModules,
+      monthlyTotal:   society.monthlyModuleTotal,
+    };
+  }
+
+  // ─── Upgrade Requests (society-admin side) ───────────────────────────────────
+
+  /**
+   * Society admin requests an upgrade for a specific module.
+   * Creates a pending upgradeRequest that SA can review.
+   */
+  async requestModuleUpgrade(societyId, moduleKey) {
+    if (!PAID_MODULES.includes(moduleKey)) {
+      throw AppError.badRequest(`'${moduleKey}' is not a valid upgradeable module.`);
+    }
+
+    const society = await Society.findById(societyId, "enabledModules upgradeRequests name");
+    if (!society) throw AppError.notFound("Society not found.");
+
+    if (society.enabledModules?.[moduleKey]) {
+      throw AppError.badRequest(`Module '${moduleKey}' is already enabled.`);
+    }
+
+    // Check for an existing pending request for the same module
+    const alreadyPending = society.upgradeRequests?.some(
+      r => r.module === moduleKey && r.status === "pending"
+    );
+    if (alreadyPending) {
+      throw AppError.conflict(`An upgrade request for '${moduleKey}' is already pending.`);
+    }
+
+    society.upgradeRequests.push({ module: moduleKey });
+    await society.save();
+
+    console.log(`[UPGRADE REQUEST] Society: ${society.name} | Module: ${moduleKey}`);
+    return { message: `Upgrade request for '${moduleKey}' submitted. Our team will review it shortly.` };
+  }
+
+  /**
+   * SA: list all pending upgrade requests across all societies.
+   */
+  async listUpgradeRequests() {
+    const societies = await Society.find(
+      { "upgradeRequests.status": "pending" },
+      "name city upgradeRequests"
+    ).lean();
+
+    const results = [];
+    for (const soc of societies) {
+      const pending = (soc.upgradeRequests || []).filter(r => r.status === "pending");
+      for (const req of pending) {
+        results.push({
+          societyId:   soc._id,
+          societyName: soc.name,
+          city:        soc.city,
+          module:      req.module,
+          requestedAt: req.requestedAt,
+          _reqId:      req._id,
+        });
+      }
+    }
+    return results;
   }
 
   async getGlobalAnalytics() {

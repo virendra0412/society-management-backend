@@ -24,7 +24,7 @@ class AppError extends Error {
 // ─── Common Error Factories ────────────────────────────────────────────────
 AppError.badRequest = (msg, code) => new AppError(msg, 400, code || "BAD_REQUEST");
 AppError.unauthorized = (msg) => new AppError(msg || "Unauthorized", 401, "UNAUTHORIZED");
-AppError.forbidden = (msg) => new AppError(msg || "Forbidden", 403, "FORBIDDEN");
+AppError.forbidden = (msg, code) => new AppError(msg || "Forbidden", 403, code || "FORBIDDEN");
 AppError.notFound = (msg) => new AppError(msg || "Resource not found", 404, "NOT_FOUND");
 AppError.conflict = (msg, code) => new AppError(msg, 409, code || "CONFLICT");
 AppError.tooMany = (msg) => new AppError(msg || "Too many requests", 429, "TOO_MANY_REQUESTS");

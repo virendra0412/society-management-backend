@@ -111,6 +111,34 @@ class SuperAdminController {
     const result = await superAdminService.getSocietyAnalytics(req.params.id);
     return sendSuccess(res, { data: result });
   }
+
+  // ── Module Management ─────────────────────────────────────────────────────────
+
+  async getModules(req, res) {
+    const data = await superAdminService.getModules(req.params.id);
+    return sendSuccess(res, { data });
+  }
+
+  async updateModules(req, res) {
+    const result = await superAdminService.updateModules(req.params.id, req.body, req.superAdmin);
+    return sendSuccess(res, {
+      message: "Modules updated successfully.",
+      data:    result,
+    });
+  }
+
+  async applyBundle(req, res) {
+    const result = await superAdminService.applyBundle(req.params.id, req.body, req.superAdmin);
+    return sendSuccess(res, {
+      message: `Bundle '${result.bundle}' applied successfully.`,
+      data:    result,
+    });
+  }
+
+  async listUpgradeRequests(req, res) {
+    const requests = await superAdminService.listUpgradeRequests();
+    return sendSuccess(res, { data: { requests } });
+  }
 }
 
 module.exports = new SuperAdminController();
