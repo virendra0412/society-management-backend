@@ -41,6 +41,13 @@ router.patch(
   maintenanceController.updateBill
 );
 
+// Delete a draft bill (only allowed while still draft / unpublished)
+router.delete(
+  "/:id",
+  requirePermission("maintenance", "write"),
+  maintenanceController.deleteBill
+);
+
 // Publish bill → generates payment records + notifies residents
 router.patch(
   "/:id/publish",

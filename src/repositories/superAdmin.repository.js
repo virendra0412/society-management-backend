@@ -1,7 +1,7 @@
 const SuperAdmin             = require("../models/superAdmin.model");
 const { SocietyApplication } = require("../models/societyApplication.model");
 const { Subscription }       = require("../models/subscription.model");
-const Society                = require("../models/society.model");
+const { Society }            = require("../models/society.model");
 const User                   = require("../models/user.model");
 const Issue                  = require("../models/issue.model");
 const MaintenanceBill        = require("../models/maintenance.model");
@@ -107,16 +107,18 @@ const getSocietyAnalytics = async (societyId) => {
     newResidents30d,
     issues30d,
   ] = await Promise.all([
-    // Resident breakdown
+    // Resident breakdown — query memberships array (role/society/isApproved are not top-level)
     User.aggregate([
-      { $match: { society: sid, role: "resident" } },
+      { $match: { "memberships.society": sid, isActive: true } },
+      { $unwind: "$memberships" },
+      { $match: { "memberships.society": sid, "memberships.role": "resident" } },
       {
         $group: {
-          _id: null,
+          _id:      null,
           total:    { $sum: 1 },
-          active:   { $sum: { $cond: ["$isActive",   1, 0] } },
-          approved: { $sum: { $cond: ["$isApproved", 1, 0] } },
-          pending:  { $sum: { $cond: [{ $and: [{ $eq: ["$isApproved", false] }, { $eq: ["$isActive", true] }] }, 1, 0] } },
+          active:   { $sum: { $cond: ["$isActive", 1, 0] } },
+          approved: { $sum: { $cond: ["$memberships.isApproved", 1, 0] } },
+          pending:  { $sum: { $cond: [{ $and: [{ $eq: ["$memberships.isApproved", false] }, { $eq: ["$isActive", true] }] }, 1, 0] } },
         },
       },
     ]),
@@ -174,7 +176,7 @@ const getSocietyAnalytics = async (societyId) => {
     }),
 
     // New residents last 30 days
-    User.countDocuments({ society: sid, role: "resident", createdAt: { $gte: thirtyDaysAgo } }),
+    User.countDocuments({ "memberships.society": sid, "memberships.role": "resident", createdAt: { $gte: thirtyDaysAgo } }),
 
     // Issues raised last 30 days
     Issue.countDocuments({ society: sid, createdAt: { $gte: thirtyDaysAgo } }),
@@ -262,8 +264,8 @@ const getGlobalAnalytics = async () => {
       },
     ]),
 
-    User.countDocuments({ role: "resident" }),
-    User.countDocuments({ role: "resident", isActive: true }),
+    User.countDocuments({ memberships: { $elemMatch: { role: "resident", isApproved: true } } }),
+    User.countDocuments({ memberships: { $elemMatch: { role: "resident", isApproved: true } }, isActive: true }),
     Issue.countDocuments({ status: { $in: ["Open", "In Progress"] } }),
   ]);
 

@@ -39,6 +39,12 @@ class MaintenanceController {
     });
   }
 
+  // ── Admin: Delete a draft bill ────────────────────────────────────────────
+  async deleteBill(req, res) {
+    await maintenanceService.deleteBill(req.params.id, req.user);
+    return sendSuccess(res, { message: "Draft bill deleted." });
+  }
+
   // ── Admin: Record payment for a flat ─────────────────────────────────────
   async recordPayment(req, res) {
     const bill = await maintenanceService.recordPayment(

@@ -109,6 +109,16 @@ class MaintenanceService {
     return maintenanceRepository.updateBill(billId, { isClosed: true });
   }
 
+  // ─── Admin: Delete a draft bill ────────────────────────────────────────────
+  async deleteBill(billId, adminUser) {
+    const societyId = this._getSocietyId(adminUser);
+    const bill = await maintenanceRepository.findBillById(billId);
+    if (!bill) throw AppError.notFound("Bill not found.");
+    if (bill.society.toString() !== societyId?.toString()) throw AppError.forbidden();
+    if (bill.isPublished) throw AppError.badRequest("Only draft bills can be deleted. Close the bill instead.");
+    await bill.deleteOne();
+  }
+
   // ─── Admin: Record a Payment ───────────────────────────────────────────────
 
   /**
