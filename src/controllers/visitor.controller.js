@@ -1,10 +1,35 @@
+/**
+ * controllers/visitor.controller.js
+ *
+ * CHANGED IN TASK 2:
+ *   createInvite()        → "visitor.invite_created"
+ *   cancelInvite()        → "visitor.invite_cancelled"
+ *   logWalkIn()           → "visitor.walkin_logged"
+ *   verifyOTP()           → "visitor.otp_verified"
+ *   approveWalkIn()       → "visitor.walkin_approved"
+ *   rejectWalkIn()        → "visitor.walkin_rejected"
+ *   markExit()            → "visitor.exited"
+ *   registerTrusted()     → "visitor.trusted_registered"
+ *   revokeTrusted()       → "visitor.trusted_revoked"
+ *
+ * Read-only methods (getAll, getMyVisitors, getOne, getMyTrusted,
+ * lookupTrusted, updateTrusted, trustedEntry) are UNCHANGED.
+ */
+
 const visitorService = require("../services/visitor.service");
 const { sendSuccess } = require("../utils/response");
+const { audit }       = require("../middlewares/audit.middleware"); // NEW
 
 class VisitorController {
   // ── Resident: Create a pre-approved invite ────────────────────────────────
   async createInvite(req, res) {
     const { visitor, otp } = await visitorService.createInvite(req.body, req.user);
+
+    await audit(req, "visitor.invite_created", "Visitor", visitor._id, {
+      visitorName: visitor.name,
+      purpose:     visitor.purpose,
+    });
+
     return sendSuccess(res, {
       statusCode: 201,
       message: "Visitor invite created. Share the OTP with your visitor — it won't be shown again.",
@@ -12,14 +37,14 @@ class VisitorController {
     });
   }
 
-  // ── Resident: Cancel a pre-approved invite (GAP-5 FIX) ───────────────────
-  /**
-   * Allows the resident who created an invite to cancel it before the visitor
-   * arrives. Invalidates the OTP and marks the record as expired so security
-   * will not grant entry even if the visitor tries their old code.
-   */
+  // ── Resident: Cancel a pre-approved invite ────────────────────────────────
   async cancelInvite(req, res) {
     const visitor = await visitorService.cancelInvite(req.params.id, req.user);
+
+    await audit(req, "visitor.invite_cancelled", "Visitor", visitor._id, {
+      cancelledBy: req.user._id,
+    });
+
     return sendSuccess(res, {
       message: "Invite cancelled. The visitor's OTP has been invalidated.",
       data: { visitor },
@@ -29,6 +54,13 @@ class VisitorController {
   // ── Security: Log a walk-in visitor ──────────────────────────────────────
   async logWalkIn(req, res) {
     const visitor = await visitorService.logWalkIn(req.body, req.user);
+
+    await audit(req, "visitor.walkin_logged", "Visitor", visitor._id, {
+      visitorName: visitor.name,
+      purpose:     visitor.purpose,
+      loggedBy:    req.user._id,
+    });
+
     return sendSuccess(res, {
       statusCode: 201,
       message: "Walk-in visitor logged. Resident has been notified for approval.",
@@ -43,6 +75,11 @@ class VisitorController {
       req.body.otp,
       req.user
     );
+
+    await audit(req, "visitor.otp_verified", "Visitor", visitor._id, {
+      verifiedBy: req.user._id,
+    });
+
     return sendSuccess(res, {
       message: "OTP verified. Entry granted.",
       data: { visitor },
@@ -52,6 +89,11 @@ class VisitorController {
   // ── Resident: Approve a walk-in ───────────────────────────────────────────
   async approveWalkIn(req, res) {
     const visitor = await visitorService.approveWalkIn(req.params.id, req.user);
+
+    await audit(req, "visitor.walkin_approved", "Visitor", visitor._id, {
+      approvedBy: req.user._id,
+    });
+
     return sendSuccess(res, {
       message: "Visitor entry approved.",
       data: { visitor },
@@ -61,6 +103,11 @@ class VisitorController {
   // ── Resident: Reject a walk-in ────────────────────────────────────────────
   async rejectWalkIn(req, res) {
     const visitor = await visitorService.rejectWalkIn(req.params.id, req.user);
+
+    await audit(req, "visitor.walkin_rejected", "Visitor", visitor._id, {
+      rejectedBy: req.user._id,
+    });
+
     return sendSuccess(res, {
       message: "Visitor entry rejected.",
       data: { visitor },
@@ -70,6 +117,11 @@ class VisitorController {
   // ── Security: Mark visitor as exited ─────────────────────────────────────
   async markExit(req, res) {
     const visitor = await visitorService.markExit(req.params.id, req.user);
+
+    await audit(req, "visitor.exited", "Visitor", visitor._id, {
+      recordedBy: req.user._id,
+    });
+
     return sendSuccess(res, {
       message: "Visitor exit recorded.",
       data: { visitor },
@@ -94,11 +146,15 @@ class VisitorController {
     return sendSuccess(res, { data: { visitor } });
   }
 
-  // ══ Flow C: Trusted Visitor Endpoints ════════════════════════════════════
-
   // ── Resident: Register a trusted/frequent visitor ─────────────────────────
   async registerTrusted(req, res) {
     const visitor = await visitorService.registerTrustedVisitor(req.body, req.user);
+
+    await audit(req, "visitor.trusted_registered", "Visitor", visitor._id, {
+      trustedName: visitor.name,
+      category:    visitor.trustedVisitor?.category,
+    });
+
     return sendSuccess(res, {
       statusCode: 201,
       message: "Trusted visitor registered. They will be auto-approved within their schedule window.",
@@ -118,6 +174,11 @@ class VisitorController {
   // ── Resident: Revoke a trusted visitor pass ───────────────────────────────
   async revokeTrusted(req, res) {
     const visitor = await visitorService.revokeTrustedVisitor(req.params.id, req.user);
+
+    await audit(req, "visitor.trusted_revoked", "Visitor", visitor._id, {
+      revokedBy: req.user._id,
+    });
+
     return sendSuccess(res, {
       message: "Trusted visitor pass revoked. Entry will no longer be auto-approved.",
       data: { visitor },

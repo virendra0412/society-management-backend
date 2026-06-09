@@ -24,9 +24,9 @@ const maintenanceRoutes = require("./maintenance.routes");
 const amenityRoutes     = require("./amenity.routes");
 const eventRoutes       = require("./event.routes");
 const parkingRoutes     = require("./parking.routes");
-
 const moduleRoutes      = require("./module.routes");
-
+const { inviteRouter, inviteVerifyRouter } = require("./inviteLink.routes");
+const auditLogRoutes = require("./auditLog.routes");
 // ─── Mount Routes ─────────────────────────────────────────────────────────────
 
 // Auth & user — no module gate
@@ -50,6 +50,12 @@ router.use("/parking",     protect, requireSociety, requireModule("parking"),   
 
 // Society module status + upgrade requests
 router.use("/modules", moduleRoutes);
+
+// Invite link — admin generates, public verifies
+router.use("/society",     inviteRouter);          // POST /society/:id/invite-link
+router.use("/invite-link", inviteVerifyRouter);    // GET  /invite-link/verify
+
+router.use("/audit-logs", protect, requireSociety, auditLogRoutes);
 
 // Super Admin — multi-society platform management
 router.use("/superadmin", superAdminRoutes);

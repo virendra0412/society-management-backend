@@ -75,6 +75,11 @@ const subscriptionSchema = new mongoose.Schema(
     cancelledAt:   { type: Date,   default: null },
     cancelReason:  { type: String, trim: true, maxlength: [300, "Reason too long"], default: null },
 
+    // ── Expiry reminder tracking (Task 3) ─────────────────────────────────────
+    // Updated by subscription.job.js each time a warning push/email is sent.
+    // Prevents re-notifying within the same 24-hour window.
+    lastExpiryReminderAt: { type: Date, default: null },
+
     // ── Notes ────────────────────────────────────────────────────────────────
     adminNotes: {
       type:      String,

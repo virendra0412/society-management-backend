@@ -6,11 +6,16 @@ const logger   = require("./src/utils/logger");
 const { port, env } = require("./src/config/env");
 
 // ─── Background Jobs ──────────────────────────────────────────────────────────
-const { startEscalationJob }    = require("./src/jobs/escalation.job");
-const { startMaintenanceJobs }  = require("./src/jobs/maintenance.job");
-const { startVisitorJob }       = require("./src/jobs/visitor.job");
-const { startAmenityJob }       = require("./src/jobs/amenity.job");
-const { startEventJob }         = require("./src/jobs/event.job");
+const { startEscalationJob }           = require("./src/jobs/escalation.job");
+const { startMaintenanceJobs }         = require("./src/jobs/maintenance.job");
+const { startVisitorJob }              = require("./src/jobs/visitor.job");
+const { startAmenityJob }              = require("./src/jobs/amenity.job");
+const { startEventJob }                = require("./src/jobs/event.job");
+
+// Task 3 — New cron jobs
+const { startSubscriptionJob }         = require("./src/jobs/subscription.job");
+const { startOtpCleanupJob }           = require("./src/jobs/otpCleanup.job");
+const { startNotificationCleanupJob }  = require("./src/jobs/notificationCleanup.job");
 
 // ─── Catch Unhandled Errors Before DB Connect ─────────────────────────────────
 process.on("unhandledRejection", (reason) => {
@@ -56,6 +61,11 @@ const start = async () => {
     // Phase 2 — Amenity, Events, Parking
     startAmenityJob();          // mark past bookings as completed
     startEventJob();            // 24h event reminders
+
+    // Task 3 — Subscription, OTP, Notification cleanup
+    startSubscriptionJob();          // daily 9am: warn + expire subscriptions
+    startOtpCleanupJob();            // hourly: delete expired OTPs
+    startNotificationCleanupJob();   // weekly Sunday 2am: delete 90d+ notifications
   }
 };
 

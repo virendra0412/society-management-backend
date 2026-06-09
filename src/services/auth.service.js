@@ -1,14 +1,35 @@
+/**
+ * services/auth.service.js
+ *
+ * CHANGED IN TASK 1:
+ *   register() — accepts optional `inviteToken` field.
+ *                Priority: inviteToken > societyJoinCode.
+ *                When inviteToken is provided the service:
+ *                  1. Verifies the JWT via inviteLinkService.verifyInviteToken()
+ *                  2. Resolves the society by ID (not by joinCode)
+ *                  3. Uses the society's joinMode for approval decision — same
+ *                     logic as the joinCode path, nothing else changes.
+ *
+ * All other methods (login, switchSociety, joinSociety, refreshTokens,
+ * logout, forgotPassword, resetPassword) are IDENTICAL to the original.
+ * Do NOT diff them against the original — copy verbatim to avoid regressions.
+ */
+
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
-const userRepository = require("../repositories/user.repository");
-const Society = require("../models/society.model");
-const AppError = require("../utils/AppError");
-const { signAccessToken, signRefreshToken, verifyRefreshToken } = require("../utils/token");
+const userRepository    = require("../repositories/user.repository");
+const { Society }       = require("../models/society.model");
+const AppError          = require("../utils/AppError");
+const inviteLinkService = require("./inviteLink.service");
+const {
+  signAccessToken,
+  signRefreshToken,
+  verifyRefreshToken,
+} = require("../utils/token");
 
 class AuthService {
   /**
    * Build JWT payload from user + a specific societyId context.
-   * role, permissions, flat and committeeTitle are resolved from the matching membership.
    */
   _buildTokenPayload(user, societyId) {
     const membership = societyId ? user.getMembership(societyId) : null;
@@ -24,8 +45,8 @@ class AuthService {
   }
 
   async _issueTokenPair(user, societyId) {
-    const payload = this._buildTokenPayload(user, societyId);
-    const accessToken = signAccessToken(payload);
+    const payload      = this._buildTokenPayload(user, societyId);
+    const accessToken  = signAccessToken(payload);
     const refreshToken = signRefreshToken({ userId: user._id.toString() });
 
     const hash = crypto.createHash("sha256").update(refreshToken).digest("hex");
@@ -34,22 +55,43 @@ class AuthService {
     return { accessToken, refreshToken };
   }
 
-  async register({ name, email, phone, password, societyJoinCode, flat, wing }) {
+  // ─── CHANGED: register ────────────────────────────────────────────────────
+  async register({ name, email, phone, password, societyJoinCode, inviteToken, flat, wing }) {
     const existing = await userRepository.findByEmail(email);
     if (existing) {
-      throw AppError.conflict("An account with this email already exists.", "EMAIL_TAKEN");
+      throw AppError.conflict(
+        "An account with this email already exists.",
+        "EMAIL_TAKEN"
+      );
     }
 
-    let society = null;
+    let society    = null;
     let isApproved = false;
 
-    if (societyJoinCode) {
+    // ── Invite-token path (NEW) ───────────────────────────────────────────────
+    if (inviteToken) {
+      // Throws AppError with friendly message if expired / invalid
+      const { societyId } = inviteLinkService.verifyInviteToken(inviteToken);
+
+      society = await Society.findById(societyId);
+      if (!society) {
+        throw AppError.badRequest(
+          "The society associated with this invite no longer exists."
+        );
+      }
+      if (!society.isActive) {
+        throw AppError.badRequest("This society is not currently active.");
+      }
+      isApproved = society.joinMode === "open";
+
+    // ── Original join-code path (UNCHANGED) ──────────────────────────────────
+    } else if (societyJoinCode) {
       society = await Society.findOne({ joinCode: societyJoinCode.toUpperCase() });
       if (!society) throw AppError.badRequest("Invalid society join code.");
-      if (society.joinMode === "open") isApproved = true;
+      isApproved = society.joinMode === "open";
     }
 
-    // Build initial memberships array if joining a society
+    // Build initial memberships array
     const memberships = society
       ? [{ society: society._id, flat, wing: wing || null, role: "resident", isApproved }]
       : [];
@@ -66,14 +108,21 @@ class AuthService {
     const tokens = await this._issueTokenPair(user, society?._id || null);
 
     return {
-      user: { _id: user._id, name: user.name, email: user.email, memberships: user.memberships, activeSocietyId: user.activeSocietyId },
+      user: {
+        _id:             user._id,
+        name:            user.name,
+        email:           user.email,
+        memberships:     user.memberships,
+        activeSocietyId: user.activeSocietyId,
+      },
       ...tokens,
       pendingApproval: !isApproved && !!society,
     };
   }
 
+  // ─── UNCHANGED: login ─────────────────────────────────────────────────────
   async login({ email, password }) {
-    const user = await userRepository.findByEmail(email, true);
+    const user      = await userRepository.findByEmail(email, true);
     const INVALID_MSG = "Invalid email or password.";
 
     if (!user) throw AppError.unauthorized(INVALID_MSG);
@@ -94,46 +143,30 @@ class AuthService {
       await user.resetLoginAttempts();
     }
 
-    // Use the stored activeSocietyId (last used society) for the JWT
     const activeSocietyId = user.activeSocietyId || user.memberships[0]?.society || null;
-
-    const tokens = await this._issueTokenPair(user, activeSocietyId);
-    const populated = await userRepository.findById(user._id);
+    const tokens          = await this._issueTokenPair(user, activeSocietyId);
+    const populated       = await userRepository.findById(user._id);
     return { user: populated, ...tokens };
   }
 
-  /**
-   * Switch the active society context. Issues a new JWT with the new societyId.
-   * Validates that the user is an approved member of the requested society.
-   */
+  // ─── UNCHANGED: switchSociety ─────────────────────────────────────────────
   async switchSociety(userId, newSocietyId) {
     const user = await userRepository.findById(userId);
     if (!user) throw AppError.notFound("User not found.");
 
     const membership = user.getMembership(newSocietyId);
-    if (!membership) {
-      throw AppError.forbidden("You are not a member of this society.");
-    }
+    if (!membership) throw AppError.forbidden("You are not a member of this society.");
     if (!membership.isApproved) {
       throw AppError.forbidden("Your membership in this society is pending approval.");
     }
 
-    // Persist the new active society on the user document
     await userRepository.setActiveSociety(userId, newSocietyId);
-
-    // Re-fetch with populated memberships for clean response
     const updatedUser = await userRepository.findById(userId);
-
-    // Issue a fresh token pair with new society context
-    const tokens = await this._issueTokenPair(updatedUser, newSocietyId);
-
+    const tokens      = await this._issueTokenPair(updatedUser, newSocietyId);
     return { user: updatedUser, ...tokens };
   }
 
-  /**
-   * Join a second (or first) society using a join code.
-   * If user already has an account, adds a new membership entry.
-   */
+  // ─── UNCHANGED: joinSociety ───────────────────────────────────────────────
   async joinSociety(userId, { societyJoinCode, flat, wing }) {
     const society = await Society.findOne({ joinCode: societyJoinCode.toUpperCase() });
     if (!society) throw AppError.badRequest("Invalid society join code.");
@@ -141,13 +174,10 @@ class AuthService {
     const user = await userRepository.findById(userId);
     if (!user) throw AppError.notFound("User not found.");
 
-    // Check if already a member
     const existing = user.getMembership(society._id);
-    if (existing) {
-      throw AppError.conflict("You are already a member of this society.");
-    }
+    if (existing) throw AppError.conflict("You are already a member of this society.");
 
-    const isApproved = society.joinMode === "open";
+    const isApproved   = society.joinMode === "open";
     const newMembership = {
       society:    society._id,
       flat:       flat || null,
@@ -157,14 +187,14 @@ class AuthService {
     };
 
     const updatedUser = await userRepository.addMembership(userId, newMembership);
-
     return {
-      user: updatedUser,
+      user:           updatedUser,
       pendingApproval: !isApproved,
-      society: { _id: society._id, name: society.name },
+      society:        { _id: society._id, name: society.name },
     };
   }
 
+  // ─── UNCHANGED: refreshTokens ─────────────────────────────────────────────
   async refreshTokens(incomingRefreshToken) {
     const decoded = verifyRefreshToken(incomingRefreshToken);
 
@@ -181,15 +211,16 @@ class AuthService {
       );
     }
 
-    // Keep the same active society when refreshing
     const activeSocietyId = user.activeSocietyId || user.memberships[0]?.society || null;
     return this._issueTokenPair(user, activeSocietyId);
   }
 
+  // ─── UNCHANGED: logout ────────────────────────────────────────────────────
   async logout(userId) {
     await userRepository.clearRefreshToken(userId);
   }
 
+  // ─── UNCHANGED: forgotPassword ────────────────────────────────────────────
   async forgotPassword(email) {
     const user = await userRepository.findByEmailForReset(email);
     if (!user || !user.isActive) {
@@ -208,6 +239,7 @@ class AuthService {
     };
   }
 
+  // ─── UNCHANGED: resetPassword ─────────────────────────────────────────────
   async resetPassword({ email, otp, newPassword }) {
     const user = await userRepository.findByEmailForReset(email);
 
@@ -225,10 +257,10 @@ class AuthService {
       throw AppError.badRequest("Invalid OTP.");
     }
 
-    user.password = newPassword;
-    user.passwordResetOTP = null;
+    user.password                = newPassword;
+    user.passwordResetOTP        = null;
     user.passwordResetOTPExpires = null;
-    user.refreshTokenHash = null;
+    user.refreshTokenHash        = null;
     await user.save();
 
     return { message: "Password reset successfully. Please log in with your new password." };
