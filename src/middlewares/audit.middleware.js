@@ -84,9 +84,10 @@ const auditMiddleware = (action, entity, getEntityId = null, getChanges = null) 
 
       // Only log on success (2xx)
       if (res.statusCode >= 200 && res.statusCode < 300) {
+        const resolvedAction = typeof action === "function" ? action(req, body) : action;
         const entityId = getEntityId ? getEntityId(req, body) : null;
         const changes  = getChanges  ? getChanges(req, body)  : null;
-        audit(req, action, entity, entityId, changes);
+        audit(req, resolvedAction, entity, entityId, changes);
       }
 
       return result;

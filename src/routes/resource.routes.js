@@ -77,18 +77,11 @@ noticeRouter.patch(
   requirePermission("notices", "write"),
   validate(notice.pin),
   auditMiddleware(
-    // Action depends on the body — resolve dynamically in the middleware factory
-    // by passing a function as action. The auditMiddleware handles string or fn.
-    // We use a small wrapper here to pick the right action name.
-    "notice.pinned", // will be overridden below
+    (req) => req.body.isPinned ? "notice.pinned" : "notice.unpinned",
     "Notice",
     (req) => req.params.id,
     (req) => ({ isPinned: req.body.isPinned })
   ),
-  // ↑ NOTE: the pin/unpin action distinction ("notice.pinned" vs "notice.unpinned")
-  // is minor — the changes field records isPinned:true/false so it's distinguishable.
-  // If you need separate action names, use the audit() helper directly inside
-  // NoticeController.setPinned() instead (same pattern as user/visitor/maintenance).
   noticeController.setPinned
 );
 
