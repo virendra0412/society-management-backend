@@ -1,5 +1,16 @@
-const userService = require("../services/user.service");
+/**
+ * controllers/user.controller.js
+ *
+ * CHANGED IN TASK 2:
+ *   approveMember() — writes audit log "member.approved"
+ *   rejectMember()  — writes audit log "member.rejected"
+ *
+ * All other methods are IDENTICAL to the original.
+ */
+
+const userService   = require("../services/user.service");
 const { sendSuccess } = require("../utils/response");
+const { audit }     = require("../middlewares/audit.middleware"); // NEW
 
 class UserController {
   // ── Profile ────────────────────────────────────────────────────────────────
@@ -61,26 +72,38 @@ class UserController {
     return sendSuccess(res, { data: { members } });
   }
 
+  // ── CHANGED: approveMember ─────────────────────────────────────────────────
   async approveMember(req, res) {
     const societyId = req.societyId;
-    const user = await userService.approveMember(societyId, req.params.userId);
+    const user      = await userService.approveMember(societyId, req.params.userId);
+
+    // Audit: who approved whom, in which society
+    await audit(req, "member.approved", "User", req.params.userId, {
+      approvedBy: req.user._id,
+      societyId,
+    });
+
     return sendSuccess(res, {
       message: "Member approved.",
       data: { user },
     });
   }
 
+  // ── CHANGED: rejectMember ──────────────────────────────────────────────────
   async rejectMember(req, res) {
     const societyId = req.societyId;
     await userService.rejectMember(societyId, req.params.userId);
+
+    // Audit: who rejected whom, in which society
+    await audit(req, "member.rejected", "User", req.params.userId, {
+      rejectedBy: req.user._id,
+      societyId,
+    });
+
     return sendSuccess(res, { message: "Member rejected and account deactivated." });
   }
 
-  // ── FCM Token (push notifications) ────────────────────────────────────────
-  /**
-   * PATCH /users/fcm-token
-   * Body: { fcmToken: string }
-   */
+  // ── FCM Token ──────────────────────────────────────────────────────────────
   async updateFcmToken(req, res) {
     const { fcmToken } = req.body;
     await userService.updateFcmToken(req.user._id, fcmToken || null);
@@ -88,32 +111,12 @@ class UserController {
   }
 
   // ── Committee Management ───────────────────────────────────────────────────
-
-  /**
-   * GET /users/committee
-   * Lists all committee members in the active society.
-   */
   async getCommitteeMembers(req, res) {
     const societyId = req.societyId;
     const members = await userService.getCommitteeMembers(societyId);
     return sendSuccess(res, { data: { members } });
   }
 
-  /**
-   * POST /users/:userId/committee
-   * Body: { role, committeeTitle?, permissions? }
-   *
-   * Assigns or updates a committee role.
-   * Example body for Treasurer:
-   * {
-   *   "role": "committee",
-   *   "committeeTitle": "Treasurer",
-   *   "permissions": {
-   *     "maintenance": "full",
-   *     "residents": "read"
-   *   }
-   * }
-   */
   async assignCommitteeRole(req, res) {
     const societyId = req.societyId;
     const { role, committeeTitle, permissions } = req.body;
@@ -130,10 +133,6 @@ class UserController {
     });
   }
 
-  /**
-   * DELETE /users/:userId/committee
-   * Demotes the user back to resident, clears permissions and title.
-   */
   async removeCommitteeRole(req, res) {
     const societyId = req.societyId;
     const user = await userService.removeCommitteeRole(societyId, req.user._id, req.params.userId);
