@@ -99,7 +99,6 @@ router.patch("/societies/:id/transfer-admin",
 );
 router.post("/societies/:id/reset-admin-password",
   protectSuperAdmin,
-  validate(v.resetAdminPassword),
   ctrl.resetAdminPassword
 );
 

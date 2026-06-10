@@ -137,16 +137,20 @@ class SuperAdminService {
     // 2. Create admin User
     const tempPassword = _generateTempPassword();
     const adminUser = await User.create({
-      name:       app.adminName,
-      email:      app.adminEmail,
-      phone:      app.adminPhone,
-      password:   tempPassword,
-      role:       "admin",
-      society:    society._id,
-      flat:       "ADMIN",
-      wing:       null,
-      isApproved: true,
-      isActive:   true,
+      name:            app.adminName,
+      email:           app.adminEmail,
+      phone:           app.adminPhone,
+      password:        tempPassword,
+      isActive:        true,
+      activeSocietyId: society._id,
+      memberships: [{
+        society:    society._id,
+        role:       "admin",
+        flat:       "ADMIN",
+        wing:       null,
+        isApproved: true,
+        isActive:   true,
+      }],
     });
 
     // 3. Update society with real admin
@@ -312,9 +316,16 @@ class SuperAdminService {
 
     const prevAdminId = society.admin;
 
-    // Demote old admin → resident, promote new admin
-    await User.findByIdAndUpdate(prevAdminId, { role: "resident" });
-    await User.findByIdAndUpdate(newAdminUserId, { role: "admin" });
+    // Demote old admin → resident in their membership sub-doc
+    await User.updateOne(
+      { _id: prevAdminId, "memberships.society": societyId },
+      { $set: { "memberships.$.role": "resident" } }
+    );
+    // Promote new admin in their membership sub-doc
+    await User.updateOne(
+      { _id: newAdminUserId, "memberships.society": societyId },
+      { $set: { "memberships.$.role": "admin" } }
+    );
     await Society.findByIdAndUpdate(societyId, { admin: newAdminUserId });
 
     console.log(`[SUPERADMIN] Admin transfer: ${society.name} | ${prevAdminId} → ${newAdminUserId} | Note: ${note}`);
@@ -324,15 +335,17 @@ class SuperAdminService {
 
   /**
    * Force-reset a society's admin password.
+   * Auto-generates a secure temp password — no body required from the SA.
    * In production this should send the new password via email.
    */
-  async resetAdminPassword(societyId, { newPassword }, superAdmin) {
+  async resetAdminPassword(societyId, superAdmin) {
     const society = await repo.findSocietyById(societyId);
     if (!society) throw AppError.notFound("Society not found.");
 
     const adminUser = await User.findById(society.admin).select("+password");
     if (!adminUser) throw AppError.notFound("Society admin user not found.");
 
+    const newPassword = _generateTempPassword();
     adminUser.password = newPassword;
     adminUser.refreshTokenHash = null; // invalidate existing sessions
     await adminUser.save();
@@ -342,6 +355,7 @@ class SuperAdminService {
     return {
       message: "Admin password reset. All existing sessions have been invalidated.",
       adminEmail: adminUser.email,
+      tempPassword: process.env.NODE_ENV !== "production" ? newPassword : undefined,
     };
   }
 

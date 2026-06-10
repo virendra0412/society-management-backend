@@ -52,11 +52,14 @@ class ParkingService {
         const skipped = incoming.length - created.length;
         return { slots: created, skipped };
       } catch (err) {
-        if (err.code === 11000) {
-          throw AppError.conflict(
-            "Some slot numbers already exist. Adjust your range or prefix.",
-            "SLOT_DUPLICATE"
-          );
+        if (err.code === 11000 || err.name === "BulkWriteError" || err.name === "MongoBulkWriteError") {
+          const inserted = err.result?.nInserted ?? err.insertedDocs?.length ?? 0;
+          const skipped  = incoming.length - inserted;
+          return {
+            slots:   err.insertedDocs || [],
+            skipped,
+            message: `${inserted} slot(s) created, ${skipped} duplicate(s) skipped.`,
+          };
         }
         throw err;
       }
@@ -83,11 +86,14 @@ class ParkingService {
     try {
       return await parkingRepository.createManySlots(slots);
     } catch (err) {
-      if (err.code === 11000) {
-        throw AppError.conflict(
-          "Some slot numbers already exist. Adjust the prefix or startNumber.",
-          "SLOT_DUPLICATE"
-        );
+      if (err.code === 11000 || err.name === "BulkWriteError" || err.name === "MongoBulkWriteError") {
+        const inserted = err.result?.nInserted ?? err.insertedDocs?.length ?? 0;
+        const skipped  = slots.length - inserted;
+        return {
+          slots:   err.insertedDocs || [],
+          skipped,
+          message: `${inserted} slot(s) created, ${skipped} duplicate(s) skipped.`,
+        };
       }
       throw err;
     }
@@ -290,6 +296,22 @@ class ParkingService {
   }
 
   // ─── Listing: Requests ─────────────────────────────────────────────────────
+
+  async getRequestById(requestId, requestingUser) {
+    const societyId = this._getSocietyId(requestingUser);
+    const request   = await parkingRepository.findRequestById(requestId);
+    if (!request) throw AppError.notFound("Parking request not found.");
+    if (request.society.toString() !== societyId?.toString()) throw AppError.forbidden();
+
+    // Residents may only view their own requests
+    const isAdmin = requestingUser.role === "admin" ||
+                    requestingUser.permissions?.parking === "full" ||
+                    requestingUser.permissions?.parking === "read";
+    if (!isAdmin && request.requestedBy.toString() !== requestingUser._id.toString()) {
+      throw AppError.forbidden("Access denied.");
+    }
+    return request;
+  }
 
   async getAllRequests(societyId, query) {
     const { page, limit, skip } = parsePagination(query);

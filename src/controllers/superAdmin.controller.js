@@ -93,7 +93,7 @@ class SuperAdminController {
   }
 
   async resetAdminPassword(req, res) {
-    const result = await superAdminService.resetAdminPassword(req.params.id, req.body, req.superAdmin);
+    const result = await superAdminService.resetAdminPassword(req.params.id, req.superAdmin);
     return sendSuccess(res, {
       message: result.message,
       data:    { adminEmail: result.adminEmail },

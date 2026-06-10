@@ -90,6 +90,11 @@ class ParkingController {
     );
     return sendSuccess(res, { message: "Request rejected.", data: { request } });
   }
+
+  async getRequestById(req, res) {
+    const request = await parkingService.getRequestById(req.params.requestId, req.user);
+    return sendSuccess(res, { data: { request } });
+  }
 }
 
 module.exports = new ParkingController();
