@@ -44,6 +44,13 @@ class AuthService {
     };
   }
 
+  _findMembership(user, societyId, { includeInactive = false } = {}) {
+    return user.memberships.find((membership) => {
+      const id = membership.society?._id || membership.society;
+      return id?.toString() === societyId?.toString() && (includeInactive || membership.isActive);
+    }) || null;
+  }
+
   async _issueTokenPair(user, societyId) {
     const payload      = this._buildTokenPayload(user, societyId);
     const accessToken  = signAccessToken(payload);
@@ -162,6 +169,14 @@ class AuthService {
   async switchSociety(userId, newSocietyId) {
     const user = await userRepository.findById(userId);
     if (!user) throw AppError.notFound("User not found.");
+
+    const anyMembership = this._findMembership(user, newSocietyId, { includeInactive: true });
+    if (anyMembership && !anyMembership.isActive && !anyMembership.isApproved) {
+      throw AppError.forbidden(
+        "Your membership request for this society was rejected by the society admin.",
+        "MEMBERSHIP_REJECTED"
+      );
+    }
 
     const membership = user.getMembership(newSocietyId);
     if (!membership) throw AppError.forbidden("You are not a member of this society.");

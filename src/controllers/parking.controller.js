@@ -27,7 +27,7 @@ class ParkingController {
   }
 
   async releaseSlot(req, res) {
-    const slot = await parkingService.releaseSlot(req.params.slotId, req.user);
+    const slot = await parkingService.releaseSlot(req.params.slotId, req.user, req.query.confirm);
     return sendSuccess(res, { message: "Slot released and is now available.", data: { slot } });
   }
 

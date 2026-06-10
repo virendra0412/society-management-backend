@@ -112,7 +112,7 @@ class ParkingService {
     return parkingRepository.updateSlot(slotId, updates);
   }
 
-  async releaseSlot(slotId, adminUser) {
+  async releaseSlot(slotId, adminUser, confirm = false) {
     const slot = await parkingRepository.findSlotById(slotId);
     if (!slot) throw AppError.notFound("Parking slot not found.");
     if (slot.society.toString() !== this._getSocietyId(adminUser)?.toString()) {
@@ -120,6 +120,9 @@ class ParkingService {
     }
     if (slot.status !== "assigned") {
       throw AppError.badRequest("Slot is not currently assigned.");
+    }
+    if (confirm !== true && confirm !== "true") {
+      throw AppError.badRequest("Confirm slot release with ?confirm=true.");
     }
     return parkingRepository.releaseSlot(slotId);
   }
