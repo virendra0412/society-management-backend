@@ -150,6 +150,15 @@ class AuthService {
   }
 
   // ─── UNCHANGED: switchSociety ─────────────────────────────────────────────
+  // EDGE-04 note: _issueTokenPair() rotates refreshTokenHash on every call.
+  // Rapid back-to-back switches (A→B→A) are safe because AuthContext.switchSociety
+  // awaits each call and stores the new tokens before the next switch begins,
+  // so each switch always presents the *latest* refresh token.
+  // Risk: if a background API call fires between two rapid switches and its
+  // 401-retry attempts a token refresh using the pre-first-switch token, the
+  // reuse-detection in refreshTokens() will invalidate the session.
+  // Mitigation: AuthContext queues token refreshes via _isRefreshing; the
+  // window is milliseconds and requires a network round-trip to trigger.
   async switchSociety(userId, newSocietyId) {
     const user = await userRepository.findById(userId);
     if (!user) throw AppError.notFound("User not found.");

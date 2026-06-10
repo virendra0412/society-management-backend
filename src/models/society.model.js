@@ -190,6 +190,9 @@ societySchema.virtual("monthlyModuleTotal").get(function () {
 });
 
 // ─── Generate join code before first save ────────────────────────────────────
+// crypto.randomBytes(4).toString("hex") always yields exactly 8 hex characters.
+// This matches the UI's hard-coded maxLength={8} and length !== 8 guard in
+// JoinSocietyModal (ProfileScreen.jsx). Keep both in sync if this ever changes.
 societySchema.pre("validate", function (next) {
   if (this.isNew && !this.joinCode) {
     this.joinCode = crypto.randomBytes(4).toString("hex").toUpperCase();

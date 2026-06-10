@@ -85,10 +85,13 @@ class UserRepository {
   }
 
   // ── Multi-society: deactivate a membership ─────────────────────────────────
+  // TC-MS-004: sets isActive: false AND isApproved: false on the membership
+  // subdoc only — the top-level user.isActive is NOT touched, so the user can
+  // still log in and access other society memberships.
   async deactivateMembership(userId, societyId) {
     return User.findOneAndUpdate(
       { _id: userId, "memberships.society": societyId },
-      { $set: { "memberships.$.isActive": false } },
+      { $set: { "memberships.$.isActive": false, "memberships.$.isApproved": false } },
       { new: true }
     ).exec();
   }
