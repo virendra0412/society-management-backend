@@ -130,8 +130,12 @@ issueSchema.index({ society: 1, isEscalated: 1 });
 
 // ─── Middleware: Set resolvedAt timestamp ──────────────────────────────────────
 issueSchema.pre("save", function (next) {
-  if (this.isModified("status") && this.status === "Resolved" && !this.resolvedAt) {
-    this.resolvedAt = new Date();
+  if (this.isModified("status")) {
+    if (this.status === "Resolved" && !this.resolvedAt) {
+      this.resolvedAt = new Date();
+    } else if (this.status !== "Resolved") {
+      this.resolvedAt = null;
+    }
   }
   next();
 });

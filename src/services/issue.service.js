@@ -58,7 +58,7 @@ class IssueService {
     const sort = parseSort(query.sort, ALLOWED_SORT_FIELDS);
 
     const filters = {};
-    if (query.status)   filters.status   = query.status;
+    if (query.status && query.status !== "All")   filters.status   = query.status;
     if (query.category) filters.category = query.category;
     if (query.priority) filters.priority = query.priority;
     if (query.isEscalated === "true") filters.isEscalated = true;
