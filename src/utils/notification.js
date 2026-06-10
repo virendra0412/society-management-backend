@@ -77,7 +77,7 @@ const notifyVisitorArrival = (tokens, visitor, societyId) =>
       body:  `${visitor.name} is at the gate.`,
     },
     {
-      type:      "visitor",
+      type:      "visitor_walkin",
       visitorId: visitor._id.toString(),
       societyId: societyId ? societyId.toString() : null,
     }

@@ -232,7 +232,7 @@ const getSocietyAnalytics = async (societyId) => {
 /**
  * Global platform overview for super admin dashboard.
  */
-const getGlobalAnalytics = async () => {
+const getGlobalAnalytics = async (period = "30d") => {
   const [
     societyStats,
     subscriptionStats,

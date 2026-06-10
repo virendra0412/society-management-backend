@@ -103,7 +103,7 @@ class SuperAdminController {
   // ── Analytics ────────────────────────────────────────────────────────────────
 
   async getGlobalAnalytics(req, res) {
-    const analytics = await superAdminService.getGlobalAnalytics();
+    const analytics = await superAdminService.getGlobalAnalytics(req.query.period);
     return sendSuccess(res, { data: { analytics } });
   }
 

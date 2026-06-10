@@ -186,7 +186,10 @@ class MaintenanceRepository {
       { _id: billId },
       {
         $inc: { "payments.$[elem].penalty": penaltyAmount },
-        $set: { "payments.$[elem].status": "overdue" },
+        $set: {
+          "payments.$[elem].status": "overdue",
+          penaltyAppliedAt: new Date(),
+        },
       },
       {
         arrayFilters: [

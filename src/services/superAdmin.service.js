@@ -547,8 +547,8 @@ class SuperAdminService {
     return results;
   }
 
-  async getGlobalAnalytics() {
-    return repo.getGlobalAnalytics();
+  async getGlobalAnalytics(period) {
+    return repo.getGlobalAnalytics(period);
   }
 }
 

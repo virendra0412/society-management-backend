@@ -186,6 +186,7 @@ class MaintenanceService {
     if (bill.society.toString() !== societyId?.toString()) throw AppError.forbidden();
     if (!bill.penaltyEnabled) throw AppError.badRequest("Penalty is not enabled for this bill.");
     if (new Date() < bill.dueDate) throw AppError.badRequest("Due date has not passed yet.");
+    if (bill.penaltyAppliedAt) throw AppError.badRequest("Penalty has already been applied to this bill.");
 
     await maintenanceRepository.applyPenaltyToOverdue(billId, bill.penaltyAmount);
     return maintenanceRepository.findBillById(billId);
