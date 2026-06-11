@@ -1,6 +1,7 @@
 const { extractBearerToken, verifyAccessToken } = require("../utils/token");
 const userRepository = require("../repositories/user.repository");
 const AppError = require("../utils/AppError");
+const { Society } = require("../models/society.model");
 
 /**
  * Protects routes — requires a valid Bearer access token.
@@ -62,20 +63,40 @@ const optionalProtect = async (req, res, next) => {
 /**
  * Ensure the authenticated user belongs to a society and is approved.
  * Validates against the active society from the JWT (req.societyId).
+ * Also checks society.isActive so a mid-session suspension returns 403
+ * immediately rather than letting the request through. (EDGE-01)
  * Must come after protect().
  */
-const requireSociety = (req, res, next) => {
+const requireSociety = async (req, res, next) => {
   if (!req.societyId) {
-    throw AppError.forbidden("You must be a member of a society to access this resource.");
+    return next(AppError.forbidden("You must be a member of a society to access this resource."));
   }
 
   // Verify the JWT's societyId is a valid, approved membership on the user doc
   const membership = req.user.getMembership(req.societyId);
   if (!membership) {
-    throw AppError.forbidden("You are not a member of this society.");
+    return next(AppError.forbidden("You are not a member of this society."));
   }
+  // TC-MS-004: distinguish rejected (isApproved:false) from merely inactive
+  // so the client can show "Your membership was rejected" instead of the
+  // generic pending-approval message.
   if (!membership.isApproved) {
-    throw AppError.forbidden("Your membership is pending approval by the society admin.");
+    const isPending = membership.isActive !== false;
+    const msg = isPending
+      ? "Your membership is pending approval by the society admin."
+      : "Your membership request was rejected by the society admin.";
+    const code = isPending ? "MEMBERSHIP_PENDING" : "MEMBERSHIP_REJECTED";
+    return next(AppError.forbidden(msg, code));
+  }
+
+  // EDGE-01: check society is still active — SA may suspend mid-session.
+  // Lean query for minimal overhead; only fetches the isActive flag.
+  const society = await Society.findById(req.societyId, "isActive").lean();
+  if (!society) {
+    return next(AppError.forbidden("Society not found."));
+  }
+  if (!society.isActive) {
+    return next(AppError.forbidden("Society account is suspended."));
   }
 
   next();

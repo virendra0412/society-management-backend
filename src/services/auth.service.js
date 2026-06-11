@@ -21,6 +21,7 @@ const userRepository    = require("../repositories/user.repository");
 const { Society }       = require("../models/society.model");
 const AppError          = require("../utils/AppError");
 const inviteLinkService = require("./inviteLink.service");
+const { sendPasswordResetOTP } = require("../utils/email");
 const {
   signAccessToken,
   signRefreshToken,
@@ -42,6 +43,13 @@ class AuthService {
       committeeTitle: membership?.committeeTitle || null,
       permissions:    membership?.permissions || null,
     };
+  }
+
+  _findMembership(user, societyId, { includeInactive = false } = {}) {
+    return user.memberships.find((membership) => {
+      const id = membership.society?._id || membership.society;
+      return id?.toString() === societyId?.toString() && (includeInactive || membership.isActive);
+    }) || null;
   }
 
   async _issueTokenPair(user, societyId) {
@@ -150,9 +158,26 @@ class AuthService {
   }
 
   // ─── UNCHANGED: switchSociety ─────────────────────────────────────────────
+  // EDGE-04 note: _issueTokenPair() rotates refreshTokenHash on every call.
+  // Rapid back-to-back switches (A→B→A) are safe because AuthContext.switchSociety
+  // awaits each call and stores the new tokens before the next switch begins,
+  // so each switch always presents the *latest* refresh token.
+  // Risk: if a background API call fires between two rapid switches and its
+  // 401-retry attempts a token refresh using the pre-first-switch token, the
+  // reuse-detection in refreshTokens() will invalidate the session.
+  // Mitigation: AuthContext queues token refreshes via _isRefreshing; the
+  // window is milliseconds and requires a network round-trip to trigger.
   async switchSociety(userId, newSocietyId) {
     const user = await userRepository.findById(userId);
     if (!user) throw AppError.notFound("User not found.");
+
+    const anyMembership = this._findMembership(user, newSocietyId, { includeInactive: true });
+    if (anyMembership && !anyMembership.isActive && !anyMembership.isApproved) {
+      throw AppError.forbidden(
+        "Your membership request for this society was rejected by the society admin.",
+        "MEMBERSHIP_REJECTED"
+      );
+    }
 
     const membership = user.getMembership(newSocietyId);
     if (!membership) throw AppError.forbidden("You are not a member of this society.");
@@ -231,7 +256,7 @@ class AuthService {
     await user.save({ validateBeforeSave: false });
 
     const devOtp = process.env.NODE_ENV !== "production" ? otp : undefined;
-    console.log(`[DEV] Password reset OTP for ${email}: ${otp}`);
+    await sendPasswordResetOTP({ to: email, otp });
 
     return {
       message: "If that email exists, an OTP has been sent.",

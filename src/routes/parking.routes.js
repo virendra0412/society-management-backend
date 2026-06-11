@@ -32,6 +32,9 @@ router.get(   "/requests/mine",              parkingController.getMyRequests);
 router.post(  "/requests",                   validate(v.submitRequest), parkingController.submitRequest);
 router.patch( "/requests/:requestId/cancel", parkingController.cancelRequest);
 
+// All: view a single request (owner or parking committee/admin)
+router.get(   "/requests/:requestId",              parkingController.getRequestById);
+
 // Parking committee / Admin: list and act on all requests
 router.get(   "/requests",                         requirePermission("parking", "read"),  parkingController.getAllRequests);
 router.patch( "/requests/:requestId/approve",      requirePermission("parking", "write"), validate(v.approveRequest), parkingController.approveRequest);

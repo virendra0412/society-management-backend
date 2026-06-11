@@ -29,7 +29,7 @@ class EventController {
 
   // ── Listing ───────────────────────────────────────────────────────────────
   async getAll(req, res) {
-    const isAdmin = req.user.role === "admin";
+    const isAdmin = req.role === "admin";
     const { events, meta } = await eventService.getAllEvents(req.societyId, req.query, isAdmin);
     return sendSuccess(res, { data: { events }, meta });
   }

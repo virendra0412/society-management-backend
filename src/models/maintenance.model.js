@@ -170,6 +170,11 @@ const maintenanceBillSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    penaltyAppliedAt: {
+      // Set when applyPenalty() runs; presence guards against double-application.
+      type: Date,
+      default: null,
+    },
 
     // ── Targeting ─────────────────────────────────────────────────────────────
     // "all"  → bill applies to every approved resident in the society

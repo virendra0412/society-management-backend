@@ -40,6 +40,14 @@ const envSchema = Joi.object({
   FIREBASE_CLIENT_EMAIL: Joi.string().optional().default(""),
   // In .env wrap the key in double quotes: FIREBASE_PRIVATE_KEY="-----BEGIN..."
   FIREBASE_PRIVATE_KEY:  Joi.string().optional().default(""),
+
+  // SMTP email (Brevo example: smtp-relay.brevo.com:587)
+  SMTP_HOST:   Joi.string().optional().default(""),
+  SMTP_PORT:   Joi.number().optional().default(587),
+  SMTP_SECURE: Joi.boolean().optional().default(false),
+  SMTP_USER:   Joi.string().optional().default(""),
+  SMTP_PASS:   Joi.string().optional().default(""),
+  EMAIL_FROM:  Joi.string().optional().default(""),
 }).unknown(true);
 
 const { error, value: validatedEnv } = envSchema.validate(process.env);

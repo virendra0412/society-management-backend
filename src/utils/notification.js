@@ -21,30 +21,41 @@ const sendPushNotification = async (tokens, notification, data = {}) => {
     priority: "high",
   }));
 
+  // Split into ≤100-token batches (Expo API limit)
   const chunks = [];
   for (let i = 0; i < messages.length; i += 100)
     chunks.push(messages.slice(i, i + 100));
 
-  for (const chunk of chunks) {
-    try {
-      const res = await fetch("https://exp.host/--/api/v2/push/send", {
+  // EDGE-03: run all batches in parallel with Promise.allSettled so:
+  //   • every batch is attempted regardless of whether another fails
+  //   • a single invalid token in one chunk doesn't swallow the rest
+  const results = await Promise.allSettled(
+    chunks.map((chunk, idx) =>
+      fetch("https://exp.host/--/api/v2/push/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(chunk),
-      });
-      const result = await res.json();
-      if (result?.data) {
-        const failed = result.data.filter(r => r.status === "error");
-        if (failed.length > 0) {
-          logger.warn(`Expo push: ${failed.length} message(s) failed`, { failed });
-        } else {
-          logger.info(`Expo push: ${result.data.length} notification(s) sent`);
-        }
-      }
-    } catch (err) {
-      logger.error("Expo push send failed:", { error: err.message });
+      })
+        .then((res) => res.json())
+        .then((result) => {
+          if (result?.data) {
+            const failed = result.data.filter(r => r.status === "error");
+            if (failed.length > 0) {
+              logger.warn(`Expo push batch ${idx + 1}/${chunks.length}: ${failed.length} message(s) failed`, { failed });
+            } else {
+              logger.info(`Expo push batch ${idx + 1}/${chunks.length}: ${result.data.length} sent`);
+            }
+          }
+        })
+    )
+  );
+
+  // Log any batches that rejected at the network/parse level
+  results.forEach((r, idx) => {
+    if (r.status === "rejected") {
+      logger.error(`Expo push batch ${idx + 1}/${chunks.length} failed:`, { error: r.reason?.message });
     }
-  }
+  });
 };
 
 /**
@@ -77,7 +88,7 @@ const notifyVisitorArrival = (tokens, visitor, societyId) =>
       body:  `${visitor.name} is at the gate.`,
     },
     {
-      type:      "visitor",
+      type:      "visitor_walkin",
       visitorId: visitor._id.toString(),
       societyId: societyId ? societyId.toString() : null,
     }

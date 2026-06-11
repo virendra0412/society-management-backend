@@ -229,10 +229,18 @@ const getSocietyAnalytics = async (societyId) => {
   };
 };
 
+const periodStartDate = (period = "30d") => {
+  const days = { "7d": 7, "30d": 30, "90d": 90 }[period] || 30;
+  return new Date(Date.now() - days * 86_400_000);
+};
+
 /**
  * Global platform overview for super admin dashboard.
  */
-const getGlobalAnalytics = async () => {
+const getGlobalAnalytics = async (period = "30d") => {
+  const since = periodStartDate(period);
+  const createdInPeriod = { createdAt: { $gte: since } };
+
   const [
     societyStats,
     subscriptionStats,
@@ -241,6 +249,7 @@ const getGlobalAnalytics = async () => {
     openIssues,
   ] = await Promise.all([
     Society.aggregate([
+      { $match: createdInPeriod },
       {
         $group: {
           _id:    null,
@@ -252,6 +261,7 @@ const getGlobalAnalytics = async () => {
     ]),
 
     Subscription.aggregate([
+      { $match: createdInPeriod },
       {
         $group: {
           _id:       "$plan",
@@ -264,9 +274,9 @@ const getGlobalAnalytics = async () => {
       },
     ]),
 
-    User.countDocuments({ memberships: { $elemMatch: { role: "resident", isApproved: true } } }),
-    User.countDocuments({ memberships: { $elemMatch: { role: "resident", isApproved: true } }, isActive: true }),
-    Issue.countDocuments({ status: { $in: ["Open", "In Progress"] } }),
+    User.countDocuments({ memberships: { $elemMatch: { role: "resident", isApproved: true } }, ...createdInPeriod }),
+    User.countDocuments({ memberships: { $elemMatch: { role: "resident", isApproved: true } }, isActive: true, ...createdInPeriod }),
+    Issue.countDocuments({ status: { $in: ["Open", "In Progress"] }, ...createdInPeriod }),
   ]);
 
   const s   = societyStats[0] || { total: 0, active: 0, inactive: 0 };
@@ -296,6 +306,7 @@ const getGlobalAnalytics = async () => {
     issues: {
       open: openIssues,
     },
+    period,
   };
 };
 

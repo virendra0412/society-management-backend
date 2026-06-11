@@ -80,11 +80,12 @@ class EventService {
     // Push notification to all society members
     const societyId = this._getSocietyId(adminUser);
     const residents = await User.find({
-      society:    societyId,
-      isApproved: true,
-      isActive:   true,
-      fcmToken:   { $ne: null },
-    }).select("fcmToken").lean();
+      memberships: {
+        $elemMatch: { society: societyId, isApproved: true, isActive: true },
+      },
+      isActive: true,
+      fcmToken: { $ne: null },
+    }).select("+fcmToken").lean();
 
     const tokens = residents.map(r => r.fcmToken).filter(Boolean);
     if (tokens.length > 0) {
@@ -126,7 +127,7 @@ class EventService {
       const users = await User.find({
         _id:     { $in: residentIds },
         fcmToken: { $ne: null },
-      }).select("fcmToken").lean();
+      }).select("+fcmToken").lean();
 
       const tokens = users.map(u => u.fcmToken).filter(Boolean);
       if (tokens.length > 0) {

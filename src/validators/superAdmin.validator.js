@@ -48,10 +48,11 @@ const updateSubscription = Joi.object({
 }).min(1);
 
 const transferAdmin = Joi.object({
-  newAdminUserId: Joi.string().hex().length(24).required()
+  newAdminUserId: Joi.string().hex().length(24).optional()
     .messages({ "string.length": "Invalid user ID" }),
+  newAdminEmail: Joi.string().email().lowercase().trim().optional(),
   note: Joi.string().max(300).trim().optional().allow(""),
-});
+}).xor("newAdminUserId", "newAdminEmail");
 
 const reactivateSociety = Joi.object({
   note: Joi.string().max(300).trim().optional().allow(""),

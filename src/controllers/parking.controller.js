@@ -27,7 +27,7 @@ class ParkingController {
   }
 
   async releaseSlot(req, res) {
-    const slot = await parkingService.releaseSlot(req.params.slotId, req.user);
+    const slot = await parkingService.releaseSlot(req.params.slotId, req.user, req.query.confirm);
     return sendSuccess(res, { message: "Slot released and is now available.", data: { slot } });
   }
 
@@ -89,6 +89,11 @@ class ParkingController {
       req.body.adminNote
     );
     return sendSuccess(res, { message: "Request rejected.", data: { request } });
+  }
+
+  async getRequestById(req, res) {
+    const request = await parkingService.getRequestById(req.params.requestId, req.user);
+    return sendSuccess(res, { data: { request } });
   }
 }
 

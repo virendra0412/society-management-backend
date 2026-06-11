@@ -93,17 +93,20 @@ class SuperAdminController {
   }
 
   async resetAdminPassword(req, res) {
-    const result = await superAdminService.resetAdminPassword(req.params.id, req.body, req.superAdmin);
+    const result = await superAdminService.resetAdminPassword(req.params.id, req.superAdmin);
     return sendSuccess(res, {
       message: result.message,
-      data:    { adminEmail: result.adminEmail },
+      data:    {
+        adminEmail: result.adminEmail,
+        tempPassword: result.tempPassword,
+      },
     });
   }
 
   // ── Analytics ────────────────────────────────────────────────────────────────
 
   async getGlobalAnalytics(req, res) {
-    const analytics = await superAdminService.getGlobalAnalytics();
+    const analytics = await superAdminService.getGlobalAnalytics(req.query.period);
     return sendSuccess(res, { data: { analytics } });
   }
 

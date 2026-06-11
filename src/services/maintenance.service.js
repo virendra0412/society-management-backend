@@ -39,31 +39,45 @@ class MaintenanceService {
     if (bill.isPublished) throw AppError.badRequest("Bill is already published.");
 
     // ── Find residents to bill ──────────────────────────────────────────────
-    let residentQuery = { society: societyId, isApproved: true, isActive: true, role: "resident" };
+    // society/role/isApproved are virtuals on User — must query the stored
+    // memberships sub-array using $elemMatch instead.
+    const membershipMatch = {
+      society:    societyId,
+      role:       "resident",
+      isApproved: true,
+      isActive:   true,
+    };
 
     if (bill.targetMode === "specific" && bill.targetFlats.length > 0) {
-      residentQuery.flat = { $in: bill.targetFlats };
+      membershipMatch.flat = { $in: bill.targetFlats };
     }
 
-    const residents = await User.find(residentQuery)
-      .select("_id flat wing fcmToken")
-      .lean();
+    const residents = await User.find({
+      memberships: { $elemMatch: membershipMatch },
+      isActive: true,
+    }).select("+fcmToken").lean();
 
     if (residents.length === 0) {
       throw AppError.badRequest("No eligible residents found to generate payment records for.");
     }
 
     // ── Build payment records ────────────────────────────────────────────────
-    const paymentRecords = residents.map((r) => ({
-      resident: r._id,
-      flat: r.flat || "N/A",
-      wing: r.wing || null,
-      amount: bill.baseAmount,
-      penalty: 0,
-      discount: 0,
-      totalDue: bill.baseAmount,
-      status: "unpaid",
-    }));
+    // flat/wing are also virtuals — read from the matching membership sub-doc.
+    const paymentRecords = residents.map((r) => {
+      const m = r.memberships.find(
+        (mem) => mem.society.toString() === societyId.toString()
+      );
+      return {
+        resident: r._id,
+        flat:     m?.flat || "N/A",
+        wing:     m?.wing || null,
+        amount:   bill.baseAmount,
+        penalty:  0,
+        discount: 0,
+        totalDue: bill.baseAmount,
+        status:   "unpaid",
+      };
+    });
 
     // ── Persist: mark published + push payment records ───────────────────────
     await maintenanceRepository.addPaymentRecords(billId, paymentRecords);
@@ -78,7 +92,7 @@ class MaintenanceService {
           title: "🏠 New Maintenance Bill",
           body: `${bill.title} — ₹${bill.baseAmount} due by ${bill.dueDate.toLocaleDateString("en-IN")}`,
         },
-        { type: "maintenance_bill", billId: bill._id.toString() }
+        { type: "bill_published", billId: bill._id.toString(), societyId: societyId.toString() }
       );
     }
 
@@ -172,6 +186,7 @@ class MaintenanceService {
     if (bill.society.toString() !== societyId?.toString()) throw AppError.forbidden();
     if (!bill.penaltyEnabled) throw AppError.badRequest("Penalty is not enabled for this bill.");
     if (new Date() < bill.dueDate) throw AppError.badRequest("Due date has not passed yet.");
+    if (bill.penaltyAppliedAt) throw AppError.badRequest("Penalty has already been applied to this bill.");
 
     await maintenanceRepository.applyPenaltyToOverdue(billId, bill.penaltyAmount);
     return maintenanceRepository.findBillById(billId);

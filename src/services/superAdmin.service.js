@@ -137,16 +137,20 @@ class SuperAdminService {
     // 2. Create admin User
     const tempPassword = _generateTempPassword();
     const adminUser = await User.create({
-      name:       app.adminName,
-      email:      app.adminEmail,
-      phone:      app.adminPhone,
-      password:   tempPassword,
-      role:       "admin",
-      society:    society._id,
-      flat:       "ADMIN",
-      wing:       null,
-      isApproved: true,
-      isActive:   true,
+      name:            app.adminName,
+      email:           app.adminEmail,
+      phone:           app.adminPhone,
+      password:        tempPassword,
+      isActive:        true,
+      activeSocietyId: society._id,
+      memberships: [{
+        society:    society._id,
+        role:       "admin",
+        flat:       "ADMIN",
+        wing:       null,
+        isApproved: true,
+        isActive:   true,
+      }],
     });
 
     // 3. Update society with real admin
@@ -296,11 +300,13 @@ class SuperAdminService {
   /**
    * Transfer admin ownership to an existing approved resident/admin of the society.
    */
-  async transferAdmin(societyId, { newAdminUserId, note }, superAdmin) {
+  async transferAdmin(societyId, { newAdminUserId, newAdminEmail, note }, superAdmin) {
     const society = await repo.findSocietyById(societyId);
     if (!society) throw AppError.notFound("Society not found.");
 
-    const newAdmin = await User.findById(newAdminUserId);
+    const newAdmin = newAdminUserId
+      ? await User.findById(newAdminUserId)
+      : await User.findOne({ email: newAdminEmail });
     if (!newAdmin) throw AppError.notFound("Target user not found.");
     const membership = newAdmin.getMembership(societyId);
     if (!membership) {
@@ -312,27 +318,36 @@ class SuperAdminService {
 
     const prevAdminId = society.admin;
 
-    // Demote old admin → resident, promote new admin
-    await User.findByIdAndUpdate(prevAdminId, { role: "resident" });
-    await User.findByIdAndUpdate(newAdminUserId, { role: "admin" });
-    await Society.findByIdAndUpdate(societyId, { admin: newAdminUserId });
+    // Demote old admin → resident in their membership sub-doc
+    await User.updateOne(
+      { _id: prevAdminId, "memberships.society": societyId },
+      { $set: { "memberships.$.role": "resident" } }
+    );
+    // Promote new admin in their membership sub-doc
+    await User.updateOne(
+      { _id: newAdmin._id, "memberships.society": societyId },
+      { $set: { "memberships.$.role": "admin" } }
+    );
+    await Society.findByIdAndUpdate(societyId, { admin: newAdmin._id });
 
-    console.log(`[SUPERADMIN] Admin transfer: ${society.name} | ${prevAdminId} → ${newAdminUserId} | Note: ${note}`);
+    console.log(`[SUPERADMIN] Admin transfer: ${society.name} | ${prevAdminId} → ${newAdmin._id} | Note: ${note}`);
 
     return { message: `Admin ownership transferred to ${newAdmin.name}.` };
   }
 
   /**
    * Force-reset a society's admin password.
+   * Auto-generates a secure temp password — no body required from the SA.
    * In production this should send the new password via email.
    */
-  async resetAdminPassword(societyId, { newPassword }, superAdmin) {
+  async resetAdminPassword(societyId, superAdmin) {
     const society = await repo.findSocietyById(societyId);
     if (!society) throw AppError.notFound("Society not found.");
 
     const adminUser = await User.findById(society.admin).select("+password");
     if (!adminUser) throw AppError.notFound("Society admin user not found.");
 
+    const newPassword = _generateTempPassword();
     adminUser.password = newPassword;
     adminUser.refreshTokenHash = null; // invalidate existing sessions
     await adminUser.save();
@@ -342,6 +357,7 @@ class SuperAdminService {
     return {
       message: "Admin password reset. All existing sessions have been invalidated.",
       adminEmail: adminUser.email,
+      tempPassword: process.env.NODE_ENV !== "production" ? newPassword : undefined,
     };
   }
 
@@ -533,8 +549,8 @@ class SuperAdminService {
     return results;
   }
 
-  async getGlobalAnalytics() {
-    return repo.getGlobalAnalytics();
+  async getGlobalAnalytics(period) {
+    return repo.getGlobalAnalytics(period);
   }
 }
 

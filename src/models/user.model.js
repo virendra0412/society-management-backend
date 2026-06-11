@@ -10,11 +10,11 @@ const PERM_LEVELS = Object.freeze(["none", "read", "write", "full"]);
 
 // Default permissions by role (used when assigning a role without explicit perms)
 const ROLE_DEFAULT_PERMISSIONS = Object.freeze({
-  resident:  { visitors: "none",  maintenance: "none", issues: "none", notices: "none", parking: "none", amenities: "none", residents: "none" },
-  admin:     { visitors: "full",  maintenance: "full", issues: "full", notices: "full", parking: "full", amenities: "full", residents: "write" },
-  committee: { visitors: "none",  maintenance: "none", issues: "none", notices: "none", parking: "none", amenities: "none", residents: "none" },
-  security:  { visitors: "full",  maintenance: "none", issues: "none", notices: "none", parking: "none", amenities: "none", residents: "read" },
-  vendor:    { visitors: "none",  maintenance: "none", issues: "read", notices: "none", parking: "none", amenities: "none", residents: "none" },
+  resident:  { visitors: "none",  maintenance: "none", issues: "none", notices: "none", contacts: "none", parking: "none", amenities: "none", residents: "none" },
+  admin:     { visitors: "full",  maintenance: "full", issues: "full", notices: "full", contacts: "full", parking: "full", amenities: "full", residents: "write" },
+  committee: { visitors: "none",  maintenance: "none", issues: "none", notices: "none", contacts: "none", parking: "none", amenities: "none", residents: "none" },
+  security:  { visitors: "full",  maintenance: "none", issues: "none", notices: "none", contacts: "none", parking: "none", amenities: "none", residents: "read" },
+  vendor:    { visitors: "none",  maintenance: "none", issues: "read", notices: "none", contacts: "none", parking: "none", amenities: "none", residents: "none" },
 });
 
 const refId = (value) => {
@@ -67,6 +67,7 @@ const membershipSchema = new mongoose.Schema(
       maintenance: { type: String, enum: PERM_LEVELS, default: "none" },
       issues:      { type: String, enum: PERM_LEVELS, default: "none" },
       notices:     { type: String, enum: PERM_LEVELS, default: "none" },
+      contacts:    { type: String, enum: PERM_LEVELS, default: "none" },
       parking:     { type: String, enum: PERM_LEVELS, default: "none" },
       amenities:   { type: String, enum: PERM_LEVELS, default: "none" },
       residents:   { type: String, enum: ["none", "read", "write"], default: "none" },
