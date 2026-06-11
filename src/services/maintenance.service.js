@@ -55,7 +55,7 @@ class MaintenanceService {
     const residents = await User.find({
       memberships: { $elemMatch: membershipMatch },
       isActive: true,
-    }).lean();
+    }).select("+fcmToken").lean();
 
     if (residents.length === 0) {
       throw AppError.badRequest("No eligible residents found to generate payment records for.");

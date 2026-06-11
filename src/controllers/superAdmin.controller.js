@@ -96,7 +96,10 @@ class SuperAdminController {
     const result = await superAdminService.resetAdminPassword(req.params.id, req.superAdmin);
     return sendSuccess(res, {
       message: result.message,
-      data:    { adminEmail: result.adminEmail },
+      data:    {
+        adminEmail: result.adminEmail,
+        tempPassword: result.tempPassword,
+      },
     });
   }
 

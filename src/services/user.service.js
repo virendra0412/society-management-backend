@@ -17,7 +17,24 @@ class UserService {
     if (Object.keys(safeUpdates).length === 0) {
       throw AppError.badRequest("No valid fields provided.");
     }
-    return userRepository.updateById(userId, safeUpdates);
+
+    const user = await userRepository.findById(userId);
+    if (!user) throw AppError.notFound("User not found.");
+    const updatesMembership = safeUpdates.flat !== undefined || safeUpdates.wing !== undefined;
+    if (updatesMembership && !user.activeSocietyId) {
+      throw AppError.badRequest("No active society selected.");
+    }
+
+    if (!updatesMembership) {
+      return userRepository.updateById(userId, safeUpdates);
+    }
+
+    const updatedUser = await userRepository.updateProfile(userId, {
+      ...safeUpdates,
+      activeSocietyId: user.activeSocietyId,
+    });
+    if (!updatedUser) throw AppError.badRequest("Active society membership not found.");
+    return updatedUser;
   }
 
   // ── Avatar ─────────────────────────────────────────────────────────────────

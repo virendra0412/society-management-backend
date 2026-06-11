@@ -300,11 +300,13 @@ class SuperAdminService {
   /**
    * Transfer admin ownership to an existing approved resident/admin of the society.
    */
-  async transferAdmin(societyId, { newAdminUserId, note }, superAdmin) {
+  async transferAdmin(societyId, { newAdminUserId, newAdminEmail, note }, superAdmin) {
     const society = await repo.findSocietyById(societyId);
     if (!society) throw AppError.notFound("Society not found.");
 
-    const newAdmin = await User.findById(newAdminUserId);
+    const newAdmin = newAdminUserId
+      ? await User.findById(newAdminUserId)
+      : await User.findOne({ email: newAdminEmail });
     if (!newAdmin) throw AppError.notFound("Target user not found.");
     const membership = newAdmin.getMembership(societyId);
     if (!membership) {
@@ -323,12 +325,12 @@ class SuperAdminService {
     );
     // Promote new admin in their membership sub-doc
     await User.updateOne(
-      { _id: newAdminUserId, "memberships.society": societyId },
+      { _id: newAdmin._id, "memberships.society": societyId },
       { $set: { "memberships.$.role": "admin" } }
     );
-    await Society.findByIdAndUpdate(societyId, { admin: newAdminUserId });
+    await Society.findByIdAndUpdate(societyId, { admin: newAdmin._id });
 
-    console.log(`[SUPERADMIN] Admin transfer: ${society.name} | ${prevAdminId} → ${newAdminUserId} | Note: ${note}`);
+    console.log(`[SUPERADMIN] Admin transfer: ${society.name} | ${prevAdminId} → ${newAdmin._id} | Note: ${note}`);
 
     return { message: `Admin ownership transferred to ${newAdmin.name}.` };
   }

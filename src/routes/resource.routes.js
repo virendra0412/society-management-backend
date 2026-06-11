@@ -111,8 +111,8 @@ const contactRouter = express.Router();
 contactRouter.use(protect, requireSociety);
 
 contactRouter.get("/",                                                                                              contactController.getAll);
-contactRouter.post("/",    requirePermission("residents", "write"), validate(contact.create),                      contactController.create);
-contactRouter.patch("/:id", requirePermission("residents", "write"), validate(contact.update),                     contactController.update);
-contactRouter.delete("/:id", requirePermission("residents", "write"),                                              contactController.remove);
+contactRouter.post("/",    requirePermission("contacts", "write"), validate(contact.create),                       contactController.create);
+contactRouter.patch("/:id", requirePermission("contacts", "write"), validate(contact.update),                      contactController.update);
+contactRouter.delete("/:id", requirePermission("contacts", "write"),                                               contactController.remove);
 
 module.exports = { helpRouter, noticeRouter, pollRouter, contactRouter };

@@ -21,6 +21,7 @@ const userRepository    = require("../repositories/user.repository");
 const { Society }       = require("../models/society.model");
 const AppError          = require("../utils/AppError");
 const inviteLinkService = require("./inviteLink.service");
+const { sendPasswordResetOTP } = require("../utils/email");
 const {
   signAccessToken,
   signRefreshToken,
@@ -255,7 +256,7 @@ class AuthService {
     await user.save({ validateBeforeSave: false });
 
     const devOtp = process.env.NODE_ENV !== "production" ? otp : undefined;
-    console.log(`[DEV] Password reset OTP for ${email}: ${otp}`);
+    await sendPasswordResetOTP({ to: email, otp });
 
     return {
       message: "If that email exists, an OTP has been sent.",

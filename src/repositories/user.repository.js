@@ -44,6 +44,23 @@ class UserRepository {
     }).exec();
   }
 
+  async updateProfile(id, updates) {
+    const setObj = {};
+    if (updates.name !== undefined) setObj.name = updates.name;
+    if (updates.phone !== undefined) setObj.phone = updates.phone;
+    if (updates.flat !== undefined) setObj["memberships.$.flat"] = updates.flat;
+    if (updates.wing !== undefined) setObj["memberships.$.wing"] = updates.wing;
+
+    return User.findOneAndUpdate(
+      { _id: id, "memberships.society": updates.activeSocietyId },
+      { $set: setObj },
+      { new: true, runValidators: true }
+    )
+      .populate("memberships.society", "name joinCode joinMode logo")
+      .populate("activeSocietyId", "name joinCode joinMode logo")
+      .exec();
+  }
+
   async storeRefreshTokenHash(userId, hash) {
     return User.findByIdAndUpdate(userId, { refreshTokenHash: hash }).exec();
   }
