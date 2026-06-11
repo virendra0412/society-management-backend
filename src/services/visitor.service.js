@@ -1,7 +1,7 @@
 const visitorRepository = require("../repositories/visitor.repository");
 const AppError = require("../utils/AppError");
 const { parsePagination, buildPaginationMeta } = require("../utils/pagination");
-const { sendPushNotification } = require("../utils/notification");
+const { sendPushNotification, notifyVisitorArrival } = require("../utils/notification");
 const userRepository = require("../repositories/user.repository");
 
 class VisitorService {
@@ -142,16 +142,11 @@ class VisitorService {
       loggedBy: securityUser._id,
     });
 
-    // Notify resident only when host is known
+    // Notify resident only when host is known.
+    // notifyVisitorArrival includes societyId so multi-society users
+    // auto-switch context when they tap the notification (TC-PN-004/006).
     if (host?.fcmToken) {
-      await sendPushNotification(
-        [host.fcmToken],
-        {
-          title: "🚶 Visitor at Gate",
-          body: `${visitor.name} (${visitor.purpose}) is at the gate. Please approve or reject.`,
-        },
-        { type: "visitor_walkin", visitorId: visitor._id.toString() }
-      );
+      await notifyVisitorArrival([host.fcmToken], visitor, societyId);
     }
 
     return visitor;
