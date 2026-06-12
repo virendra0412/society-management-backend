@@ -74,10 +74,11 @@ const switchSociety = Joi.object({
 });
 
 const joinSociety = Joi.object({
-  societyJoinCode: Joi.string().length(8).uppercase().required(),
+  societyJoinCode: Joi.string().length(8).uppercase().optional(),
+  inviteToken: Joi.string().optional(),
   flat: Joi.string().max(20).trim().optional(),
   wing: Joi.string().max(30).trim().optional(),
-});
+}).or("societyJoinCode", "inviteToken");
 
 module.exports = {
   register,

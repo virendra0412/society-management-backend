@@ -192,9 +192,25 @@ class AuthService {
   }
 
   // ─── UNCHANGED: joinSociety ───────────────────────────────────────────────
-  async joinSociety(userId, { societyJoinCode, flat, wing }) {
-    const society = await Society.findOne({ joinCode: societyJoinCode.toUpperCase() });
-    if (!society) throw AppError.badRequest("Invalid society join code.");
+  async joinSociety(userId, { societyJoinCode, inviteToken, flat, wing }) {
+    let society = null;
+
+    if (inviteToken) {
+      const { societyId } = inviteLinkService.verifyInviteToken(inviteToken);
+      society = await Society.findById(societyId);
+      if (!society) {
+        throw AppError.badRequest(
+          "The society associated with this invite no longer exists."
+        );
+      }
+    } else {
+      society = await Society.findOne({ joinCode: societyJoinCode.toUpperCase() });
+      if (!society) throw AppError.badRequest("Invalid society join code.");
+    }
+
+    if (!society.isActive) {
+      throw AppError.badRequest("This society is not currently active.");
+    }
 
     const user = await userRepository.findById(userId);
     if (!user) throw AppError.notFound("User not found.");
