@@ -64,7 +64,17 @@ class AuthService {
   }
 
   // ─── CHANGED: register ────────────────────────────────────────────────────
-  async register({ name, email, phone, password, societyJoinCode, inviteToken, flat, wing }) {
+  async register({
+    name,
+    email,
+    phone,
+    password,
+    societyJoinCode,
+    inviteToken,
+    flat,
+    wing,
+    legalAcceptedAt,
+  }) {
     const existing = await userRepository.findByEmail(email);
     if (existing) {
       throw AppError.conflict(
@@ -104,6 +114,8 @@ class AuthService {
       ? [{ society: society._id, flat, wing: wing || null, role: "resident", isApproved }]
       : [];
 
+    const acceptedAt = legalAcceptedAt ? new Date(legalAcceptedAt) : new Date();
+
     const user = await userRepository.create({
       name,
       email,
@@ -111,6 +123,12 @@ class AuthService {
       password,
       memberships,
       activeSocietyId: society?._id || null,
+      legalConsent: {
+        termsAcceptedAt: acceptedAt,
+        privacyAcceptedAt: acceptedAt,
+        termsVersion: "1.0",
+        privacyVersion: "1.0",
+      },
     });
 
     const tokens = await this._issueTokenPair(user, society?._id || null);

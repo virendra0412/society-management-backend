@@ -1,10 +1,15 @@
 const amenityService = require("../services/amenity.service");
 const { sendSuccess } = require("../utils/response");
+const { audit } = require("../middlewares/audit.middleware");
 
 class AmenityController {
   // ── Admin: Amenity management ─────────────────────────────────────────────
   async create(req, res) {
     const amenity = await amenityService.createAmenity(req.body, req.user);
+    await audit(req, "amenity.created", "Amenity", amenity._id, {
+      name: amenity.name,
+      category: amenity.category,
+    });
     return sendSuccess(res, {
       statusCode: 201,
       message: "Amenity created.",
@@ -14,11 +19,17 @@ class AmenityController {
 
   async update(req, res) {
     const amenity = await amenityService.updateAmenity(req.params.id, req.body, req.user);
+    await audit(req, "amenity.updated", "Amenity", amenity._id, {
+      updates: req.body,
+    });
     return sendSuccess(res, { message: "Amenity updated.", data: { amenity } });
   }
 
   async deactivate(req, res) {
-    await amenityService.deactivateAmenity(req.params.id, req.user);
+    const amenity = await amenityService.deactivateAmenity(req.params.id, req.user);
+    await audit(req, "amenity.deactivated", "Amenity", amenity._id, {
+      isActive: false,
+    });
     return sendSuccess(res, { message: "Amenity deactivated." });
   }
 
@@ -49,6 +60,12 @@ class AmenityController {
       req.body,
       req.user
     );
+    await audit(req, "amenity.booking_created", "AmenityBooking", booking._id, {
+      amenity: booking.amenity,
+      status: booking.status,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+    });
     return sendSuccess(res, {
       statusCode: 201,
       message: requiresApproval
@@ -64,6 +81,9 @@ class AmenityController {
       req.user,
       req.body.reason
     );
+    await audit(req, "amenity.booking_cancelled", "AmenityBooking", booking._id, {
+      reason: req.body.reason || null,
+    });
     return sendSuccess(res, { message: "Booking cancelled.", data: { booking } });
   }
 
@@ -73,6 +93,9 @@ class AmenityController {
       req.user,
       req.body.adminNote
     );
+    await audit(req, "amenity.booking_confirmed", "AmenityBooking", booking._id, {
+      adminNote: req.body.adminNote || null,
+    });
     return sendSuccess(res, { message: "Booking confirmed.", data: { booking } });
   }
 
@@ -82,6 +105,9 @@ class AmenityController {
       req.user,
       req.body.adminNote
     );
+    await audit(req, "amenity.booking_rejected", "AmenityBooking", booking._id, {
+      adminNote: req.body.adminNote || null,
+    });
     return sendSuccess(res, { message: "Booking rejected.", data: { booking } });
   }
 

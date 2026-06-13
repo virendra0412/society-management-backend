@@ -55,6 +55,55 @@ const AUDIT_ACTIONS = Object.freeze([
   "notice.deleted",
   "notice.pinned",
   "notice.unpinned",
+
+  // Issues
+  "issue.created",
+  "issue.updated",
+  "issue.status_updated",
+  "issue.assigned",
+  "issue.closed",
+  "issue.escalated",
+  "issue.comment_added",
+  "issue.photo_uploaded",
+  "issue.vendor_assigned",
+
+  // Amenities
+  "amenity.created",
+  "amenity.updated",
+  "amenity.deactivated",
+  "amenity.booked",
+  "amenity.booking_created",
+  "amenity.booking_cancelled",
+  "amenity.booking_confirmed",
+  "amenity.booking_rejected",
+
+  // Parking
+  "parking.slot_created",
+  "parking.slot_updated",
+  "parking.slot_deleted",
+  "parking.slot_assigned",
+  "parking.slot_released",
+  "parking.request_created",
+  "parking.request_approved",
+  "parking.request_rejected",
+
+  // Events
+  "event.created",
+  "event.updated",
+  "event.deleted",
+  "event.cancelled",
+  "event.rsvp_created",
+  "event.rsvp_updated",
+
+  // Polls
+  "poll.created",
+  "poll.updated",
+  "poll.closed",
+  "poll.vote_cast",
+
+  // Admin
+  "admin.member_removed",
+  "admin.role_changed",
 ]);
 
 const auditLogSchema = new mongoose.Schema(

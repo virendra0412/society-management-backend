@@ -139,6 +139,12 @@ const userSchema = new mongoose.Schema(
       default: null,
       select: false,   // never leak tokens in general API responses
     },
+    legalConsent: {
+      termsAcceptedAt:   { type: Date, default: null },
+      privacyAcceptedAt: { type: Date, default: null },
+      termsVersion:      { type: String, default: "1.0" },
+      privacyVersion:    { type: String, default: "1.0" },
+    },
     refreshTokenHash:        { type: String, select: false, default: null },
     loginAttempts:           { type: Number, select: false, default: 0 },
     lockUntil:               { type: Date,   select: false, default: null },

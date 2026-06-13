@@ -16,23 +16,22 @@ const STATUS_LABELS = {
 };
 
 class IssueService {
-  async createIssue(data, user) {
+  async createIssue(data, user, societyId) {
     return issueRepository.create({
       ...data,
-      society: user.society._id || user.society,
+      society: societyId,
       reporter: user._id,
       flat: user.flat,
     });
   }
 
   // ── Upload photos for an issue ─────────────────────────────────────────────
-  async uploadPhoto(issueId, file, user) {
+  async uploadPhoto(issueId, file, user, societyId) {
     if (!file) throw AppError.badRequest("No image file provided.");
 
     const issue = await issueRepository.findById(issueId);
     if (!issue) throw AppError.notFound("Issue not found.");
 
-    const societyId = user.society?._id || user.society;
     if (issue.society.toString() !== societyId?.toString()) throw AppError.forbidden();
 
     // Only reporter or admin can add photos
@@ -82,11 +81,10 @@ class IssueService {
     return issue;
   }
 
-  async updateIssue(issueId, updates, user) {
+  async updateIssue(issueId, updates, user, societyId) {
     const issue = await issueRepository.findById(issueId);
     if (!issue) throw AppError.notFound("Issue not found.");
 
-    const societyId = user.society?._id || user.society;
     if (issue.society.toString() !== societyId?.toString()) {
       throw AppError.forbidden("Access denied.");
     }
@@ -101,6 +99,18 @@ class IssueService {
     }
 
     const updated = await issueRepository.updateById(issueId, updates);
+    const auditMeta = {
+      before: {
+        status: issue.status,
+        assignedTo: issue.assignedTo,
+        assignedVendor: issue.assignedVendor,
+      },
+      after: {
+        status: updated.status,
+        assignedTo: updated.assignedTo,
+        assignedVendor: updated.assignedVendor,
+      },
+    };
 
     // Notify the reporter when an admin changes the status
     if (user.role === "admin" && updates.status && updates.status !== issue.status) {
@@ -124,7 +134,7 @@ class IssueService {
       });
     }
 
-    return updated;
+    return { issue: updated, auditMeta };
   }
 
   // ── Assign issue to an external vendor ────────────────────────────────────
@@ -138,11 +148,10 @@ class IssueService {
     return issueRepository.updateById(issueId, { assignedVendor: vendorData });
   }
 
-  async addComment(issueId, { body }, user) {
+  async addComment(issueId, { body }, user, societyId) {
     const issue = await issueRepository.findById(issueId);
     if (!issue) throw AppError.notFound("Issue not found.");
 
-    const societyId = user.society?._id || user.society;
     if (issue.society.toString() !== societyId?.toString()) {
       throw AppError.forbidden("Access denied.");
     }

@@ -39,6 +39,15 @@ const register = Joi.object({
 
   flat: Joi.string().max(20).trim().optional(),
   wing: Joi.string().max(30).trim().optional(),
+  termsAccepted: Joi.boolean().valid(true).required().messages({
+    "any.only": "You must accept the Terms & Conditions.",
+    "any.required": "You must accept the Terms & Conditions.",
+  }),
+  privacyAccepted: Joi.boolean().valid(true).required().messages({
+    "any.only": "You must accept the Privacy Policy.",
+    "any.required": "You must accept the Privacy Policy.",
+  }),
+  legalAcceptedAt: Joi.date().iso().optional(),
 })
 // Ensure the client doesn't send both at once (ambiguous intent)
 .and() // no mutual exclusivity needed — service resolves priority: inviteToken > joinCode
