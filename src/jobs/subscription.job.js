@@ -112,13 +112,37 @@ const warnExpiringSubscriptions = async () => {
   logger.info(`[Subscription Job] Expiry warnings sent — pushed: ${pushed}, emailed: ${emailed}, total: ${subs.length}`);
 };
 
-// ─── Task B: Mark expired subscriptions ──────────────────────────────────────
+// ─── Task B: Auto-downgrade expired trials to free; mark paid plans as expired ─
 
 const markExpiredSubscriptions = async () => {
   const now = new Date();
 
-  const result = await Subscription.updateMany(
-    { status: "active", endDate: { $lt: now } },
+  // Handle expired trial subscriptions → auto-downgrade to "free"
+  const trialResult = await Subscription.updateMany(
+    { status: "active", plan: "trial", endDate: { $lt: now } },
+    {
+      $set: { plan: "free", endDate: null },  // Remove expiry date for free plan
+      $push: {
+        history: {
+          action:     "auto-downgraded",
+          fromPlan:   "trial",
+          toPlan:     "free",
+          fromStatus: "active",
+          toStatus:   "active",
+          note:       "Trial expired — automatically downgraded to free plan by daily subscription checker.",
+          performedAt: now,
+        },
+      },
+    }
+  );
+
+  if (trialResult.modifiedCount > 0) {
+    logger.info(`[Subscription Job] Auto-downgraded ${trialResult.modifiedCount} trial(s) to free plan.`);
+  }
+
+  // Handle expired paid plan subscriptions → mark as "expired"
+  const paidResult = await Subscription.updateMany(
+    { status: "active", plan: { $in: ["basic", "premium"] }, endDate: { $lt: now } },
     {
       $set: { status: "expired" },
       $push: {
@@ -126,15 +150,15 @@ const markExpiredSubscriptions = async () => {
           action:     "expired",
           fromStatus: "active",
           toStatus:   "expired",
-          note:       "Auto-expired by daily subscription checker cron job.",
+          note:       "Expired by daily subscription checker. SA action required for renewal/upgrade.",
           performedAt: now,
         },
       },
     }
   );
 
-  if (result.modifiedCount > 0) {
-    logger.info(`[Subscription Job] Marked ${result.modifiedCount} subscription(s) as expired.`);
+  if (paidResult.modifiedCount > 0) {
+    logger.info(`[Subscription Job] Marked ${paidResult.modifiedCount} paid plan(s) as expired.`);
   }
 };
 

@@ -6,9 +6,10 @@
  * in the `history` array so super admins have a complete audit trail.
  *
  * Plans:
- *   trial   — 30 days free, max 50 residents, all features enabled.
- *   basic   — ₹999/month, max 150 residents.
- *   premium — ₹2499/month, unlimited residents, priority support.
+ *   trial   — 30 days free, max 50 residents, all features enabled. Auto-downgrades to "free" after expiry.
+ *   free    — Permanent free plan, max 25 residents, core features (no expiry).
+ *   basic   — ₹599/month, max 100 residents.
+ *   premium — ₹999/month, unlimited residents, priority support.
  *
  * Status lifecycle:
  *   active → expired  (end-date passed, no renewal)
@@ -17,12 +18,13 @@
  */
 const mongoose = require("mongoose");
 
-const PLANS         = Object.freeze(["trial", "basic", "premium"]);
+const PLANS         = Object.freeze(["trial", "free", "basic", "premium"]);
 const SUB_STATUSES  = Object.freeze(["active", "expired", "suspended", "cancelled"]);
 const PLAN_LIMITS   = Object.freeze({
-  trial:   { maxResidents: 50,   priceMonthly: 0    },
-  basic:   { maxResidents: 150,  priceMonthly: 999  },
-  premium: { maxResidents: null, priceMonthly: 2499 }, // null = unlimited
+  trial:   { maxResidents: 50,   priceMonthly: 0,   endDate: true  },
+  free:    { maxResidents: 25,   priceMonthly: 0,   endDate: false },  // No expiry
+  basic:   { maxResidents: 100,  priceMonthly: 599, endDate: true  },
+  premium: { maxResidents: null, priceMonthly: 999, endDate: true  }, // null = unlimited
 });
 const TRIAL_DAYS    = 30;
 

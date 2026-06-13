@@ -26,9 +26,11 @@ class UserRepository {
       query = query.select("+refreshTokenHash +loginAttempts +lockUntil +passwordChangedAt");
     }
     // Populate all society refs inside memberships + activeSocietyId
+    // Also populate subscription for the active society to include daysRemaining
     return query
       .populate("memberships.society", "name joinCode joinMode logo")
-      .populate("activeSocietyId", "name joinCode joinMode logo")
+      .populate("activeSocietyId", "name joinCode joinMode logo subscription")
+      .populate("activeSocietyId.subscription", "plan status startDate endDate daysRemaining")
       .exec();
   }
 
