@@ -172,9 +172,7 @@ class SuperAdminService {
       adminUser:  adminUser._id,
     });
 
-    // In production → send email with tempPassword to app.adminEmail
-    console.log(`[SUPERADMIN] Society approved: ${society.name} | Admin: ${adminUser.email} | TempPwd: ${tempPassword}`);
-
+   
     return {
       society,
       adminUser: { _id: adminUser._id, name: adminUser.name, email: adminUser.email },
@@ -331,8 +329,6 @@ class SuperAdminService {
     );
     await Society.findByIdAndUpdate(societyId, { admin: newAdmin._id });
 
-    console.log(`[SUPERADMIN] Admin transfer: ${society.name} | ${prevAdminId} → ${newAdmin._id} | Note: ${note}`);
-
     return { message: `Admin ownership transferred to ${newAdmin.name}.` };
   }
 
@@ -352,8 +348,6 @@ class SuperAdminService {
     adminUser.password = newPassword;
     adminUser.refreshTokenHash = null; // invalidate existing sessions
     await adminUser.save();
-
-    console.log(`[SUPERADMIN] Password reset for admin ${adminUser.email} of society ${society.name}`);
 
     return {
       message: "Admin password reset. All existing sessions have been invalidated.",
@@ -446,7 +440,6 @@ class SuperAdminService {
     }
 
     await society.save();
-    console.log(`[SUPERADMIN] Modules updated for ${society.name} by ${superAdmin.email}`);
 
     return {
       enabledModules: society.enabledModules,
@@ -482,7 +475,6 @@ class SuperAdminService {
     }
 
     await society.save();
-    console.log(`[SUPERADMIN] Bundle '${bundle}' applied to ${society.name} by ${superAdmin.email} (replaceAll=${replaceAll})`);
 
     return {
       bundle:         bundleDef.label,
@@ -520,7 +512,6 @@ class SuperAdminService {
     society.upgradeRequests.push({ module: moduleKey });
     await society.save();
 
-    console.log(`[UPGRADE REQUEST] Society: ${society.name} | Module: ${moduleKey}`);
     return { message: `Upgrade request for '${moduleKey}' submitted. Our team will review it shortly.` };
   }
 
