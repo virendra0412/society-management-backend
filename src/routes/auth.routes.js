@@ -12,6 +12,7 @@ const {
   resetPassword,
   switchSociety,
   joinSociety,
+  changePassword,
 } = require("../validators/auth.validator");
 
 // Apply strict rate limiting to all auth routes
@@ -26,6 +27,9 @@ router.post("/reset-password", validate(resetPassword),  authController.resetPas
 // Protected routes
 router.post("/logout",         protect, authController.logout);
 router.get("/me",              protect, authController.getMe);
+
+// Protected routes
+router.patch("/change-password", protect, validate(changePassword), authController.changePassword);
 
 // Multi-society
 router.post("/switch-society", protect, validate(switchSociety), authController.switchSociety);

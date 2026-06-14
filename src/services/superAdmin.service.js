@@ -141,6 +141,7 @@ class SuperAdminService {
       email:           app.adminEmail,
       phone:           app.adminPhone,
       password:        tempPassword,
+      mustChangePassword: true,  // TC-OB-008: Force password change on first login
       isActive:        true,
       activeSocietyId: society._id,
       memberships: [{

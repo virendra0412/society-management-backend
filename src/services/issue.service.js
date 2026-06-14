@@ -138,11 +138,10 @@ class IssueService {
   }
 
   // ── Assign issue to an external vendor ────────────────────────────────────
-  async assignVendor(issueId, vendorData, adminUser) {
+  async assignVendor(issueId, vendorData, adminUser, societyId) {
     const issue = await issueRepository.findById(issueId);
     if (!issue) throw AppError.notFound("Issue not found.");
 
-    const societyId = adminUser.society?._id || adminUser.society;
     if (issue.society.toString() !== societyId?.toString()) throw AppError.forbidden();
 
     return issueRepository.updateById(issueId, { assignedVendor: vendorData });

@@ -165,6 +165,14 @@ class AuthService {
       throw AppError.unauthorized(INVALID_MSG);
     }
 
+    // TC-OB-008: Enforce password change for admin accounts created with temp password
+    if (user.mustChangePassword) {
+      throw AppError.badRequest(
+        "You must change your password before proceeding. Contact your society admin.",
+        "MUST_CHANGE_PASSWORD"
+      );
+    }
+
     if (user.loginAttempts > 0) {
       await user.resetLoginAttempts();
     }
@@ -323,6 +331,25 @@ class AuthService {
     await user.save();
 
     return { message: "Password reset successfully. Please log in with your new password." };
+  }
+
+  // ─── New: changePassword for logged-in users ─────────────────────────────
+  async changePassword(userId, { currentPassword, newPassword }) {
+    const user = await userRepository.findById(userId, true);
+    if (!user) throw AppError.notFound("User not found.");
+
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      throw AppError.unauthorized("Current password is incorrect.");
+    }
+
+    user.password = newPassword;
+    user.mustChangePassword = false;
+    user.passwordChangedAt = new Date();
+    user.refreshTokenHash = null; // invalidate other sessions
+    await user.save();
+
+    return { message: "Password changed successfully." };
   }
 }
 

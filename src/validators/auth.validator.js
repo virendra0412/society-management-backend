@@ -75,6 +75,11 @@ const resetPassword = Joi.object({
   newPassword: password.required(),
 });
 
+const changePassword = Joi.object({
+  currentPassword: Joi.string().required(),
+  newPassword: password.required(),
+});
+
 const switchSociety = Joi.object({
   societyId: Joi.string().hex().length(24).required().messages({
     "string.hex":    "Invalid society ID",
@@ -97,4 +102,5 @@ module.exports = {
   resetPassword,
   switchSociety,
   joinSociety,
+  changePassword,
 };

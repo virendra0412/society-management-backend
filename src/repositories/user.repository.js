@@ -8,7 +8,7 @@ class UserRepository {
     let query = User.findOne({ email: email.toLowerCase() });
     if (selectSensitive) {
       query = query.select(
-        "+password +refreshTokenHash +loginAttempts +lockUntil +passwordChangedAt"
+        "+password +refreshTokenHash +loginAttempts +lockUntil +passwordChangedAt +mustChangePassword"
       );
     }
     return query.exec();
@@ -23,7 +23,7 @@ class UserRepository {
   async findById(id, selectSensitive = false) {
     let query = User.findById(id);
     if (selectSensitive) {
-      query = query.select("+refreshTokenHash +loginAttempts +lockUntil +passwordChangedAt");
+      query = query.select("+password +refreshTokenHash +loginAttempts +lockUntil +passwordChangedAt +mustChangePassword");
     }
     // Populate all society refs inside memberships + activeSocietyId
     // Also populate subscription for the active society to include daysRemaining

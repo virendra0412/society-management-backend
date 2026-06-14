@@ -69,7 +69,7 @@ class IssueController {
 
   // ── NEW: Assign issue to an external vendor ────────────────────────────────
   async assignVendor(req, res) {
-    const issue = await issueService.assignVendor(req.params.id, req.body, req.user);
+    const issue = await issueService.assignVendor(req.params.id, req.body, req.user, req.societyId);
     await audit(req, "issue.vendor_assigned", "Issue", issue._id, {
       vendor: req.body,
     });

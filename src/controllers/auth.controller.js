@@ -93,6 +93,11 @@ class AuthController {
     const result = await authService.resetPassword(req.body);
     return sendSuccess(res, { message: result.message });
   }
+
+  async changePassword(req, res) {
+    await authService.changePassword(req.user._id, req.body);
+    return sendSuccess(res, { message: "Password changed successfully." });
+  }
 }
 
 module.exports = new AuthController();

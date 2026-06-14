@@ -167,6 +167,11 @@ class VisitorService {
       throw AppError.forbidden("Access denied.");
     }
 
+    // TC-033: Reject walk-in visitors who should not use OTP flow
+    if (visitor.isWalkIn) {
+      throw AppError.badRequest("Cannot verify OTP for walk-in visitors. Use the approval flow instead.");
+    }
+
     if (visitor.status === "approved" || visitor.status === "exited") {
       throw AppError.badRequest("Visitor has already entered or exited.");
     }

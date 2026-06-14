@@ -116,6 +116,7 @@ const warnExpiringSubscriptions = async () => {
 
 const markExpiredSubscriptions = async () => {
   const now = new Date();
+  const Society = require("../models/society.model");
 
   // Handle expired trial subscriptions → auto-downgrade to "free"
   const trialResult = await Subscription.updateMany(
@@ -136,11 +137,41 @@ const markExpiredSubscriptions = async () => {
     }
   );
 
+  // TC-FP-004: Reset enabledModules for societies with expired trial subscriptions
+  if (trialResult.modifiedCount > 0) {
+    const expiredTrialSubs = await Subscription.find(
+      { status: "active", plan: "free", updatedAt: { $gte: new Date(now - 5000) } },  // Recently downgraded
+      "society"
+    ).lean();
+
+    const societyIds = expiredTrialSubs.map(sub => sub.society);
+    if (societyIds.length > 0) {
+      const freeModules = {
+        notices: true,
+        polls: true,
+        contacts: true,
+        issues: false,
+        visitors: false,
+        maintenance: false,
+        amenities: false,
+        events: false,
+        parking: false,
+        community: false,
+        analytics: false,
+        multilang: false,
+      };
+      await Society.updateMany(
+        { _id: { $in: societyIds } },
+        { $set: { enabledModules: freeModules } }
+      );
+    }
+  }
+
   if (trialResult.modifiedCount > 0) {
     logger.info(`[Subscription Job] Auto-downgraded ${trialResult.modifiedCount} trial(s) to free plan.`);
   }
 
-  // Handle expired paid plan subscriptions → mark as "expired"
+  // Handle expired paid plan subscriptions → mark as "expired" and gate paid modules
   const paidResult = await Subscription.updateMany(
     { status: "active", plan: { $in: ["basic", "premium"] }, endDate: { $lt: now } },
     {
@@ -156,6 +187,36 @@ const markExpiredSubscriptions = async () => {
       },
     }
   );
+
+  // TC-FP-004: Reset enabledModules for societies with expired paid subscriptions
+  if (paidResult.modifiedCount > 0) {
+    const expiredPaidSubs = await Subscription.find(
+      { status: "expired", updatedAt: { $gte: new Date(now - 5000) } },  // Recently expired
+      "society"
+    ).lean();
+
+    const societyIds = expiredPaidSubs.map(sub => sub.society);
+    if (societyIds.length > 0) {
+      const freeModules = {
+        notices: true,
+        polls: true,
+        contacts: true,
+        issues: false,
+        visitors: false,
+        maintenance: false,
+        amenities: false,
+        events: false,
+        parking: false,
+        community: false,
+        analytics: false,
+        multilang: false,
+      };
+      await Society.updateMany(
+        { _id: { $in: societyIds } },
+        { $set: { enabledModules: freeModules } }
+      );
+    }
+  }
 
   if (paidResult.modifiedCount > 0) {
     logger.info(`[Subscription Job] Marked ${paidResult.modifiedCount} paid plan(s) as expired.`);

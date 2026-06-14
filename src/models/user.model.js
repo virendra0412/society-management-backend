@@ -106,6 +106,12 @@ const userSchema = new mongoose.Schema(
       minlength: [8, "Password must be at least 8 characters"],
       select: false,
     },
+    // TC-OB-008: Flag to enforce password change on first admin login
+    mustChangePassword: {
+      type: Boolean,
+      default: false,
+      select: false,
+    },
 
     // ── Multi-society memberships (replaces top-level society/flat/role/wing) ──
     memberships: {
@@ -163,6 +169,7 @@ const userSchema = new mongoose.Schema(
         delete ret.refreshTokenHash;
         delete ret.loginAttempts;
         delete ret.lockUntil;
+        delete ret.mustChangePassword;  // TC-OB-008: never expose to client
         delete ret.passwordResetOTP;
         delete ret.passwordResetOTPExpires;
         delete ret.passwordResetToken;
