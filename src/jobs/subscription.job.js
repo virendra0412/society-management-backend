@@ -119,33 +119,32 @@ const markExpiredSubscriptions = async () => {
   const Society = require("../models/society.model");
 
   // Handle expired trial subscriptions → auto-downgrade to "free"
-  const trialResult = await Subscription.updateMany(
-    { status: "active", plan: "trial", endDate: { $lt: now } },
-    {
-      $set: { plan: "free", endDate: null },  // Remove expiry date for free plan
-      $push: {
-        history: {
-          action:     "auto-downgraded",
-          fromPlan:   "trial",
-          toPlan:     "free",
-          fromStatus: "active",
-          toStatus:   "active",
-          note:       "Trial expired — automatically downgraded to free plan by daily subscription checker.",
-          performedAt: now,
+  const trialFilter = { status: "active", plan: "trial", endDate: { $lt: now } };
+  // Capture affected society IDs first to reliably reset modules even under DB load
+  const trialSubsToDowngrade = await Subscription.find(trialFilter, "society").lean();
+  const trialSocietyIds = Array.from(new Set(trialSubsToDowngrade.map(s => s.society).filter(Boolean)));
+
+  let trialResult = { modifiedCount: 0 };
+  if (trialSocietyIds.length > 0) {
+    trialResult = await Subscription.updateMany(
+      trialFilter,
+      {
+        $set: { plan: "free", endDate: null },  // Remove expiry date for free plan
+        $push: {
+          history: {
+            action:     "auto-downgraded",
+            fromPlan:   "trial",
+            toPlan:     "free",
+            fromStatus: "active",
+            toStatus:   "active",
+            note:       "Trial expired — automatically downgraded to free plan by daily subscription checker.",
+            performedAt: now,
+          },
         },
-      },
-    }
-  );
+      }
+    );
 
-  // TC-FP-004: Reset enabledModules for societies with expired trial subscriptions
-  if (trialResult.modifiedCount > 0) {
-    const expiredTrialSubs = await Subscription.find(
-      { status: "active", plan: "free", updatedAt: { $gte: new Date(now - 5000) } },  // Recently downgraded
-      "society"
-    ).lean();
-
-    const societyIds = expiredTrialSubs.map(sub => sub.society);
-    if (societyIds.length > 0) {
+    if (trialResult.modifiedCount > 0) {
       const freeModules = {
         notices: true,
         polls: true,
@@ -160,10 +159,7 @@ const markExpiredSubscriptions = async () => {
         analytics: false,
         multilang: false,
       };
-      await Society.updateMany(
-        { _id: { $in: societyIds } },
-        { $set: { enabledModules: freeModules } }
-      );
+      await Society.updateMany({ _id: { $in: trialSocietyIds } }, { $set: { enabledModules: freeModules } });
     }
   }
 
@@ -172,31 +168,29 @@ const markExpiredSubscriptions = async () => {
   }
 
   // Handle expired paid plan subscriptions → mark as "expired" and gate paid modules
-  const paidResult = await Subscription.updateMany(
-    { status: "active", plan: { $in: ["basic", "premium"] }, endDate: { $lt: now } },
-    {
-      $set: { status: "expired" },
-      $push: {
-        history: {
-          action:     "expired",
-          fromStatus: "active",
-          toStatus:   "expired",
-          note:       "Expired by daily subscription checker. SA action required for renewal/upgrade.",
-          performedAt: now,
+  const paidFilter = { status: "active", plan: { $in: ["basic", "premium"] }, endDate: { $lt: now } };
+  const paidSubsToExpire = await Subscription.find(paidFilter, "society").lean();
+  const paidSocietyIds = Array.from(new Set(paidSubsToExpire.map(s => s.society).filter(Boolean)));
+
+  let paidResult = { modifiedCount: 0 };
+  if (paidSocietyIds.length > 0) {
+    paidResult = await Subscription.updateMany(
+      paidFilter,
+      {
+        $set: { status: "expired" },
+        $push: {
+          history: {
+            action:     "expired",
+            fromStatus: "active",
+            toStatus:   "expired",
+            note:       "Expired by daily subscription checker. SA action required for renewal/upgrade.",
+            performedAt: now,
+          },
         },
-      },
-    }
-  );
+      }
+    );
 
-  // TC-FP-004: Reset enabledModules for societies with expired paid subscriptions
-  if (paidResult.modifiedCount > 0) {
-    const expiredPaidSubs = await Subscription.find(
-      { status: "expired", updatedAt: { $gte: new Date(now - 5000) } },  // Recently expired
-      "society"
-    ).lean();
-
-    const societyIds = expiredPaidSubs.map(sub => sub.society);
-    if (societyIds.length > 0) {
+    if (paidResult.modifiedCount > 0) {
       const freeModules = {
         notices: true,
         polls: true,
@@ -211,10 +205,7 @@ const markExpiredSubscriptions = async () => {
         analytics: false,
         multilang: false,
       };
-      await Society.updateMany(
-        { _id: { $in: societyIds } },
-        { $set: { enabledModules: freeModules } }
-      );
+      await Society.updateMany({ _id: { $in: paidSocietyIds } }, { $set: { enabledModules: freeModules } });
     }
   }
 
