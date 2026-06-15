@@ -205,14 +205,41 @@ class SuperAdminService {
 
     const { societies, total } = await repo.findAllSocieties(filters, { skip, limit });
 
-    // Attach subscription to each society
-    const societyIds = societies.map(s => s._id);
+    // Attach subscription to each society. Guard against malformed subscription docs.
+    const societyIds = societies.map((s) => s._id).filter((id) => id);
     const subs = await Subscription.find({ society: { $in: societyIds } }).lean();
-    const subMap = subs.reduce((m, s) => { m[s.society.toString()] = s; return m; }, {});
+    const subMap = subs.reduce((m, s) => {
+      if (s?.society) {
+        m[s.society.toString()] = s;
+      }
+      return m;
+    }, {});
 
-    const enriched = societies.map(soc => ({
+    // Compute per-society user counts via aggregation to provide accurate totals
+    // even when the Society document itself doesn't store the derived count.
+    const mongoose = require("mongoose");
+    const sidObjs = societyIds
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id));
+
+    let countsMap = {};
+    if (sidObjs.length > 0) {
+      const userCountsAgg = await User.aggregate([
+        { $match: { "memberships.society": { $in: sidObjs } } },
+        { $unwind: "$memberships" },
+        { $match: { "memberships.society": { $in: sidObjs } } },
+        { $group: { _id: "$memberships.society", total: { $sum: 1 } } },
+      ]);
+      countsMap = userCountsAgg.reduce((m, r) => {
+        if (r?._id) m[r._id.toString()] = r.total;
+        return m;
+      }, {});
+    }
+
+    const enriched = societies.map((soc) => ({
       ...soc.toJSON(),
       subscription: subMap[soc._id.toString()] || null,
+      totalUsers: countsMap[soc._id.toString()] || 0,
     }));
 
     return { societies: enriched, meta: buildPaginationMeta({ total, page, limit }) };
