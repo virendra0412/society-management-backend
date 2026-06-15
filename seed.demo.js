@@ -42,7 +42,7 @@ const MONGO_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/society_
 // ─── Models ───────────────────────────────────────────────────────────────────
 const SuperAdmin        = require("./src/models/superAdmin.model");
 const { Society }       = require("./src/models/society.model");
-const SocietyApplication = require("./src/models/societyApplication.model");
+const { SocietyApplication } = require("./src/models/societyApplication.model");
 const { Subscription }  = require("./src/models/subscription.model");
 const User              = require("./src/models/user.model");
 const Issue             = require("./src/models/issue.model");
@@ -959,7 +959,7 @@ async function seed() {
   log.section("Seeding Amenities");
 
   const gym = await Amenity.create({
-    society:society._id || sunrise._id, createdBy:adminUser._id,
+    society:sunrise._id, createdBy:adminUser._id,
     name:"Society Gym", category:"Gym",
     description:"Well-equipped gym — treadmills, cycle, weights, cable machine. 5 concurrent users max.",
     maxConcurrentBookings:5, slotDurationOptions:[60], maxSlotDuration:90,
