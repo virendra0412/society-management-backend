@@ -83,6 +83,10 @@ class UserService {
     return userRepository.findPendingMembers(societyId);
   }
 
+  async getApprovedMembers(societyId) {
+    return userRepository.findApprovedMembers(societyId);
+  }
+
   async approveMember(adminSocietyId, userId) {
     const target = await userRepository.findById(userId);
     if (!target) throw AppError.notFound("User not found.");

@@ -38,6 +38,12 @@ router.delete(
 
 // ── Admin — member approval panel ─────────────────────────────────────────
 router.get(
+  "/approved",
+  requireSociety,
+  requireRole("admin"),
+  userController.getApprovedMembers
+);
+router.get(
   "/pending",
   requireSociety,
   requireRole("admin"),

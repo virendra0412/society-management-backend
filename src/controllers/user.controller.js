@@ -72,6 +72,12 @@ class UserController {
     return sendSuccess(res, { data: { members } });
   }
 
+  async getApprovedMembers(req, res) {
+    const societyId = req.societyId;
+    const members = await userService.getApprovedMembers(societyId);
+    return sendSuccess(res, { data: { members } });
+  }
+
   // ── CHANGED: approveMember ─────────────────────────────────────────────────
   async approveMember(req, res) {
     const societyId = req.societyId;

@@ -151,6 +151,18 @@ class UserRepository {
       .exec();
   }
 
+  async findApprovedMembers(societyId) {
+    return User.find({
+      memberships: {
+        $elemMatch: { society: societyId, isApproved: true, isActive: true },
+      },
+      isActive: true,
+    })
+      .select("name email phone memberships createdAt")
+      .sort({ name: 1 })
+      .exec();
+  }
+
   async approveMember(userId, societyId) {
     return this.approveMembership(userId, societyId);
   }
