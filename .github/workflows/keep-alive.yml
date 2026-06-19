@@ -1,0 +1,15 @@
+# .github/workflows/keep-alive.yml
+name: Keep Render Alive
+
+on:
+  schedule:
+    - cron: '*/14 * * * *'   # every 14 minutes (Render sleeps at 15)
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" \
+            https://society-management-system-clou.onrender.com/health
