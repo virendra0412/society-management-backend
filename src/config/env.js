@@ -48,6 +48,10 @@ const envSchema = Joi.object({
   SMTP_USER:   Joi.string().optional().default(""),
   SMTP_PASS:   Joi.string().optional().default(""),
   EMAIL_FROM:  Joi.string().optional().default(""),
+
+  // Public URL of the mobile/web login screen, included in the
+  // society-approved email so new admins know where to log in.
+  APP_LOGIN_URL: Joi.string().optional().default(""),
 }).unknown(true);
 
 const { error, value: validatedEnv } = envSchema.validate(process.env);

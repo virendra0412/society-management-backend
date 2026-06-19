@@ -6,6 +6,8 @@ const User      = require("../models/user.model");
 const { Subscription, PLAN_LIMITS } = require("../models/subscription.model");
 const AppError  = require("../utils/AppError");
 const { parsePagination, buildPaginationMeta } = require("../utils/pagination");
+const { sendSocietyApprovedEmail, sendApplicationRejectedEmail } = require("../utils/email");
+const logger    = require("../utils/logger");
 const {
   signSuperAdminAccessToken,
   signSuperAdminRefreshToken,
@@ -172,12 +174,38 @@ class SuperAdminService {
       adminUser:  adminUser._id,
     });
 
-   
+    // 6. Email the new admin their login credentials — this is the automated
+    // handoff that replaces manually relaying the temp password. If sending
+    // fails, we don't roll back the approval (society/admin already exist) —
+    // we just surface it so the superadmin can relay the password manually.
+    let emailSent = false;
+    try {
+      await sendSocietyApprovedEmail({
+        to:           adminUser.email,
+        adminName:    adminUser.name,
+        societyName:  society.name,
+        tempPassword,
+        loginUrl:     process.env.APP_LOGIN_URL,
+      });
+      emailSent = true;
+    } catch (err) {
+      logger.error("[SuperAdmin] Failed to send society-approved email", {
+        applicationId,
+        adminEmail: adminUser.email,
+        error: err.message,
+      });
+    }
+
     return {
       society,
       adminUser: { _id: adminUser._id, name: adminUser.name, email: adminUser.email },
-      tempPassword: process.env.NODE_ENV !== "production" ? tempPassword : undefined,
-      message: "Application approved. Society created with trial subscription.",
+      // Exposed whenever the email failed to send (any env) so the temp
+      // password isn't lost, and also in non-prod for convenience during testing.
+      tempPassword: (!emailSent || process.env.NODE_ENV !== "production") ? tempPassword : undefined,
+      emailSent,
+      message: emailSent
+        ? "Application approved. Society created and credentials emailed to the admin."
+        : "Application approved. Society created, but the credentials email failed to send — share the temp password manually.",
     };
   }
 
@@ -186,12 +214,31 @@ class SuperAdminService {
     if (!app) throw AppError.notFound("Application not found.");
     if (app.status !== "pending") throw AppError.badRequest(`Application is already ${app.status}.`);
 
-    return repo.updateApplication(applicationId, {
+    const updated = await repo.updateApplication(applicationId, {
       status:     "rejected",
       reviewedBy: reviewingSuperAdmin._id,
       reviewedAt: new Date(),
       reviewNote: note || null,
     });
+
+    // Best-effort notification — rejection already happened, so a failed
+    // email shouldn't fail the request, just gets logged.
+    try {
+      await sendApplicationRejectedEmail({
+        to:          app.adminEmail,
+        adminName:   app.adminName,
+        societyName: app.societyName,
+        note,
+      });
+    } catch (err) {
+      logger.error("[SuperAdmin] Failed to send application-rejected email", {
+        applicationId,
+        adminEmail: app.adminEmail,
+        error: err.message,
+      });
+    }
+
+    return updated;
   }
 
   // ─── Society Management ─────────────────────────────────────────────────────

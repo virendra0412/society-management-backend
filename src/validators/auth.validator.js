@@ -80,6 +80,15 @@ const changePassword = Joi.object({
   newPassword: password.required(),
 });
 
+// Unauthenticated counterpart to changePassword — used the very first time a
+// user with a temp password (e.g. newly approved admin) logs in. Identified
+// by email since there's no JWT yet.
+const forceChangePassword = Joi.object({
+  email: Joi.string().email().lowercase().trim().required(),
+  currentPassword: Joi.string().required(),
+  newPassword: password.required(),
+});
+
 const switchSociety = Joi.object({
   societyId: Joi.string().hex().length(24).required().messages({
     "string.hex":    "Invalid society ID",
@@ -103,4 +112,5 @@ module.exports = {
   switchSociety,
   joinSociety,
   changePassword,
+  forceChangePassword,
 };

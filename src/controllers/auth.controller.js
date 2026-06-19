@@ -98,6 +98,19 @@ class AuthController {
     await authService.changePassword(req.user._id, req.body);
     return sendSuccess(res, { message: "Password changed successfully." });
   }
+
+  // Unauthenticated — used the first time a user logs in with a temp password.
+  async forceChangePassword(req, res) {
+    const result = await authService.forceChangePassword(req.body);
+    return sendSuccess(res, {
+      message: "Password changed successfully. You're now logged in.",
+      data: {
+        user: result.user,
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+      },
+    });
+  }
 }
 
 module.exports = new AuthController();

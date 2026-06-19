@@ -351,6 +351,52 @@ class AuthService {
 
     return { message: "Password changed successfully." };
   }
+
+  // ─── New: forceChangePassword for first-time login with a temp password ──
+  // Unauthenticated counterpart to changePassword. Used the very first time a
+  // user logs in with a temp password (e.g. a newly approved admin). There's
+  // no JWT yet at this point — identity is proven by the temp/current password
+  // itself, same trust bar as a normal login. Only usable while
+  // mustChangePassword is still true, so it can't be used as a backdoor to
+  // reset an already-active account's password.
+  async forceChangePassword({ email, currentPassword, newPassword }) {
+    const user = await userRepository.findByEmail(email, true);
+    const INVALID_MSG = "Invalid email or password.";
+
+    if (!user) throw AppError.unauthorized(INVALID_MSG);
+    if (!user.isActive) throw AppError.forbidden("This account has been deactivated.");
+    if (user.isLocked()) {
+      throw AppError.tooMany(
+        "Account is temporarily locked due to too many failed login attempts. Please try again in 15 minutes."
+      );
+    }
+    if (!user.mustChangePassword) {
+      throw AppError.badRequest(
+        "This account doesn't require a forced password change. Use the regular login instead."
+      );
+    }
+
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      await user.incrementLoginAttempts();
+      throw AppError.unauthorized(INVALID_MSG);
+    }
+    if (user.loginAttempts > 0) {
+      await user.resetLoginAttempts();
+    }
+
+    user.password = newPassword;
+    user.mustChangePassword = false;
+    user.passwordChangedAt = new Date();
+    await user.save();
+
+    // Log the user straight in — they've already proven identity via the
+    // temp password, no reason to make them log in a second time.
+    const activeSocietyId = user.activeSocietyId || user.memberships[0]?.society || null;
+    const tokens           = await this._issueTokenPair(user, activeSocietyId);
+    const populated        = await userRepository.findById(user._id);
+    return { user: populated, ...tokens };
+  }
 }
 
 module.exports = new AuthService();

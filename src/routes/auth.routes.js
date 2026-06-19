@@ -13,6 +13,7 @@ const {
   switchSociety,
   joinSociety,
   changePassword,
+  forceChangePassword,
 } = require("../validators/auth.validator");
 
 // Apply strict rate limiting to all auth routes
@@ -23,6 +24,9 @@ router.post("/login",          validate(login),          authController.login);
 router.post("/refresh-token",  validate(refreshToken),   authController.refreshToken);
 router.post("/forgot-password",validate(forgotPassword), authController.forgotPassword);
 router.post("/reset-password", validate(resetPassword),  authController.resetPassword);
+
+// Unauthenticated — first-time login with a temp password (mustChangePassword=true)
+router.post("/force-change-password", validate(forceChangePassword), authController.forceChangePassword);
 
 // Protected routes
 router.post("/logout",         protect, authController.logout);
