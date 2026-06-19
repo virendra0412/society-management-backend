@@ -169,6 +169,7 @@ class UserService {
     if (!membership) throw AppError.forbidden("User is not a member of this society.");
     if (membership.role === "resident") throw AppError.badRequest("User is already a resident.");
 
+    
     return userRepository.removeCommitteeRole(targetUserId, adminSocietyId);
   }
 }

@@ -15,8 +15,8 @@ const rateLimitHandler = (req, res) =>
  * 100 requests per 15 minutes per IP.
  */
 const generalLimiter = rateLimit({
-  windowMs: rlConfig.windowMs,
-  max: rlConfig.max,
+  windowMs:10 * 1000,
+  max: 500,
   standardHeaders: true,   // Return RateLimit-* headers
   legacyHeaders: false,
   handler: rateLimitHandler,
@@ -28,8 +28,8 @@ const generalLimiter = rateLimit({
  * 10 attempts per 15 minutes per IP — brute-force mitigation.
  */
 const authLimiter = rateLimit({
-  windowMs: rlConfig.windowMs,
-  max: rlConfig.authMax,
+  windowMs:10 * 1000,
+  max: 500,
   standardHeaders: true,
   legacyHeaders: false,
   handler: rateLimitHandler,
@@ -42,7 +42,7 @@ const authLimiter = rateLimit({
  */
 const actionLimiter = rateLimit({
   windowMs: 10 * 1000, // 10s
-  max: 5,
+  max: 500,
   handler: rateLimitHandler,
   skip: (req) => process.env.NODE_ENV === "test",
 });
