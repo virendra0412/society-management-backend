@@ -20,18 +20,12 @@ const cron = require("node-cron");
 const mongoose = require("mongoose");
 const { Subscription } = require("../models/subscription.model");
 const { sendPushNotification } = require("../utils/notification");
+const { sendSubscriptionExpiryEmail } = require("../utils/email");
 const logger = require("../utils/logger");
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Simulated email sender.
- * Replace with nodemailer / SendGrid / AWS SES in production.
- */
-const sendExpiryEmail = async ({ adminEmail, adminName, societyName, daysLeft, plan }) => {
-  // In production: await transporter.sendMail({ to: adminEmail, subject: ..., html: ... });
-  logger.info(`[Subscription Job] EMAIL → ${adminEmail} | Society: "${societyName}" | Plan: ${plan} | ${daysLeft} day(s) left`);
-};
+// (Real email sending now lives in utils/email.js — sendSubscriptionExpiryEmail
+// — using the same branded template as the approval/rejection/OTP emails.)
 
 // ─── Task A: Warn societies expiring within 7 days ────────────────────────────
 
@@ -90,16 +84,25 @@ const warnExpiringSubscriptions = async () => {
       pushed++;
     }
 
-    // Email notification
+    // Email notification — best-effort; a failed send shouldn't stop the
+    // cron from processing the rest of the expiring societies.
     if (admin.email) {
-      await sendExpiryEmail({
-        adminEmail: admin.email,
-        adminName:  admin.name,
-        societyName,
-        daysLeft,
-        plan,
-      });
-      emailed++;
+      try {
+        await sendSubscriptionExpiryEmail({
+          to: admin.email,
+          adminName:  admin.name,
+          societyName,
+          daysLeft,
+          plan,
+        });
+        emailed++;
+      } catch (err) {
+        logger.error("[Subscription Job] Failed to send expiry email", {
+          societyId: society._id?.toString(),
+          adminEmail: admin.email,
+          error: err.message,
+        });
+      }
     }
 
     // Mark as reminded (update via model to avoid the immutability guard on AuditLog)
