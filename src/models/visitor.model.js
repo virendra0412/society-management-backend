@@ -215,7 +215,8 @@ const visitorSchema = new mongoose.Schema(
     deliveryAutoExitAt: {
       type: Date,
       default: null,
-      index: true,   // sparse-ish; most visitors won't have this set
+      // Index defined below as visitorSchema.index({ deliveryAutoExitAt: 1 }, { sparse: true })
+      // Do NOT add index: true here — that would create a duplicate non-sparse index.
     },
 
     // ── Timestamps ────────────────────────────────────────────────────────────
