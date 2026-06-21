@@ -79,10 +79,14 @@ const autoExitDeliveries = async () => {
  */
 const sendTrustedVisitorDigest = async () => {
   try {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd   = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    // FIX: was server-local setHours(0,0,0,0)/(23,59,59,999) — "today" must be
+    // IST's today, not the server process's local today, or entries near
+    // midnight get mis-bucketed (or the whole digest silently finds 0 entries).
+    const istDateStr = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date()); // "YYYY-MM-DD" in IST
+    const todayStart = new Date(`${istDateStr}T00:00:00.000+05:30`);
+    const todayEnd   = new Date(`${istDateStr}T23:59:59.999+05:30`);
 
     const Visitor = require("../models/visitor.model");
     const User    = require("../models/user.model");
@@ -117,8 +121,10 @@ const sendTrustedVisitorDigest = async () => {
 
       const summary = myEntries
         .map(e => {
-          const t = new Date(e.entryTime);
-          return `${e.name} at ${String(t.getHours()).padStart(2,"0")}:${String(t.getMinutes()).padStart(2,"0")}`;
+          const hhmm = new Intl.DateTimeFormat("en-GB", {
+            timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false,
+          }).format(new Date(e.entryTime));
+          return `${e.name} at ${hhmm}`;
         })
         .join(", ");
 

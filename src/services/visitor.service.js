@@ -4,6 +4,50 @@ const { parsePagination, buildPaginationMeta } = require("../utils/pagination");
 const { sendPushNotification, notifyVisitorArrival } = require("../utils/notification");
 const userRepository = require("../repositories/user.repository");
 
+// ─── IST time helpers ──────────────────────────────────────────────────────
+// FIX (reported bug #1): the server may run in any timezone (commonly UTC on
+// cloud hosts), but residents enter accessSchedule.fromTime/toTime and pick
+// passType="daily" expiry in IST (Indian Standard Time, UTC+5:30) — the only
+// timezone this app's society data uses. Comparing `new Date().getHours()`
+// or `new Date().setHours(...)` directly used the SERVER's local time, which
+// silently broke every schedule-window and daily-expiry check whenever the
+// server wasn't already running in IST. These helpers use the built-in
+// Intl API (no extra dependency) to always compute the IST wall-clock time,
+// regardless of what timezone the Node process itself is running in.
+const IST_TZ = "Asia/Kolkata";
+
+/** Returns { dayOfWeek (0=Sun..6=Sat), hhmm: "HH:MM" } for "now", in IST. */
+function nowInIST() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: IST_TZ,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const map = {};
+  for (const p of parts) map[p.type] = p.value;
+
+  const DAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  // hour can come back as "24" for midnight with hour12:false in some ICU versions — normalize.
+  const hour = map.hour === "24" ? "00" : map.hour;
+
+  return {
+    dayOfWeek: DAY_INDEX[map.weekday],
+    hhmm: `${hour}:${map.minute}`,
+  };
+}
+
+/** Returns a Date representing 23:59:59.999 *IST* today, expressed correctly in UTC. */
+function endOfTodayIST() {
+  const istNow = new Intl.DateTimeFormat("en-CA", {
+    timeZone: IST_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date()); // "YYYY-MM-DD" in IST
+  // IST is UTC+5:30 with no DST — 23:59:59.999 IST == 18:29:59.999 UTC same date.
+  return new Date(`${istNow}T18:29:59.999Z`);
+}
+
 class VisitorService {
   _getSocietyId(user) {
     return user.activeSocietyId?._id || user.activeSocietyId || user.society?._id || user.society;
@@ -287,10 +331,8 @@ class VisitorService {
     let validUntil = null;
     const passType = data.passType || "monthly";
     if (passType === "daily") {
-      // Expires at midnight tonight (IST = UTC+5:30)
-      const end = new Date();
-      end.setHours(23, 59, 59, 999);
-      validUntil = end;
+      // FIX: was server-local setHours(23,59,59,999) — now correctly IST midnight.
+      validUntil = endOfTodayIST();
     } else if (passType === "monthly") {
       validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     }
@@ -339,9 +381,7 @@ class VisitorService {
     const updates = { ...data };
     if (data.passType) {
       if (data.passType === "daily") {
-        const end = new Date();
-        end.setHours(23, 59, 59, 999);
-        updates.validUntil = end;
+        updates.validUntil = endOfTodayIST();
       } else if (data.passType === "monthly") {
         updates.validUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       } else {
@@ -425,10 +465,11 @@ class VisitorService {
       throw AppError.badRequest("This trusted pass has expired.");
     }
 
-    // Check schedule window
-    const now = new Date();
-    const dayOfWeek = now.getDay(); // 0 Sun … 6 Sat
-    const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    // Check schedule window — FIX: was using server-local now.getDay()/getHours(),
+    // which broke whenever the server process wasn't running in IST. All
+    // accessSchedule values are entered by residents in IST, so the check
+    // must compare against IST "now" too.
+    const { dayOfWeek, hhmm: currentTime } = nowInIST();
 
     const schedule = visitor.accessSchedule;
     const allowedDays = schedule?.days ?? [0, 1, 2, 3, 4, 5, 6];
@@ -458,6 +499,13 @@ class VisitorService {
   async getAllVisitors(societyId, query) {
     const { page, limit, skip } = parsePagination(query);
     const filters = {};
+    // FIX (bug #1): trusted passes (isTrusted:true) reuse status:"invited" to
+    // mean "active pass", which collided with the regular invite flow's use
+    // of the same status to mean "awaiting gate OTP verification". Trusted
+    // passes have their own dedicated Trusted tab/endpoints — they must never
+    // surface in the main Visitors list, or the UI offers a "Verify OTP"
+    // action that can never succeed (no OTP was ever generated for them).
+    filters.isTrusted = { $ne: true };
     if (query.status) filters.status = query.status;
     if (query.purpose) filters.purpose = query.purpose;
     if (query.hostFlat) filters.hostFlat = query.hostFlat;
@@ -482,6 +530,9 @@ class VisitorService {
   async getMyVisitors(residentUser, query) {
     const { page, limit, skip } = parsePagination(query);
     const filters = {};
+    // FIX (bug #1): same reasoning as getAllVisitors above — keep trusted
+    // passes out of the regular Visitors list; they live in the Trusted tab.
+    filters.isTrusted = { $ne: true };
     if (query.status) filters.status = query.status;
 
     const { visitors, total } = await visitorRepository.findByHost(
