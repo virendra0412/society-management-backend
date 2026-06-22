@@ -3,6 +3,7 @@ const AppError = require("../utils/AppError");
 const { parsePagination, buildPaginationMeta } = require("../utils/pagination");
 const { sendPushNotification, notifyVisitorArrival } = require("../utils/notification");
 const userRepository = require("../repositories/user.repository");
+const logger = require("../utils/logger");
 
 // ─── IST time helpers ──────────────────────────────────────────────────────
 // FIX (reported bug #1): the server may run in any timezone (commonly UTC on
@@ -187,10 +188,21 @@ class VisitorService {
     });
 
     // Notify resident only when host is known.
-    // notifyVisitorArrival includes societyId so multi-society users
-    // auto-switch context when they tap the notification (TC-PN-004/006).
+    // Log the token presence here so you can tell whether the issue is
+    // (a) host not found, (b) host found but token null, or (c) push sending.
+    logger.info("[Visitor] Walk-in logged — notification check", {
+      visitorId:    visitor?._id?.toString(),
+      hostFound:    !!host,
+      hostId:       host?._id?.toString() || "(none)",
+      hasFcmToken:  !!host?.fcmToken,
+      tokenPrefix:  host?.fcmToken ? host.fcmToken.slice(0, 25) + "…" : "(null)",
+    });
+
     if (host?.fcmToken) {
       await notifyVisitorArrival([host.fcmToken], visitor, societyId);
+    } else if (host) {
+      logger.warn("[Visitor] Host found but has no FCM token — push skipped. " +
+        "User may not have granted notification permission or token registration failed on their last login.");
     }
 
     return visitor;

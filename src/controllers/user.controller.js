@@ -11,6 +11,7 @@
 const userService   = require("../services/user.service");
 const { sendSuccess } = require("../utils/response");
 const { audit }     = require("../middlewares/audit.middleware"); // NEW
+const logger        = require("../utils/logger");
 
 class UserController {
   // ── Profile ────────────────────────────────────────────────────────────────
@@ -112,7 +113,31 @@ class UserController {
   // ── FCM Token ──────────────────────────────────────────────────────────────
   async updateFcmToken(req, res) {
     const { fcmToken } = req.body;
+
+    // STEP 1 — Did the request arrive at all with a token?
+    // If this line never appears in logs: the mobile app is not calling
+    // PATCH /users/fcm-token after login (check NotificationContext mount order).
+    // If fcmToken is "(null)": getExpoPushTokenAsync() failed on device
+    // (missing projectId in app.json or permissions denied).
+    logger.info("[FCM] updateFcmToken called", {
+      userId:          req.user?._id?.toString(),
+      tokenReceived:   !!fcmToken,
+      tokenPrefix:     fcmToken ? fcmToken.slice(0, 30) + "…" : "(null)",
+      isExpoToken:     fcmToken?.startsWith("ExponentPushToken") ?? false,
+    });
+
+    if (!fcmToken) {
+      logger.warn("[FCM] Null/empty token received — clearing stored token for user. " +
+        "This is normal on logout but unexpected on login.");
+    }
+
     await userService.updateFcmToken(req.user._id, fcmToken || null);
+
+    // STEP 2 — Token saved to DB
+    logger.info("[FCM] Token saved to DB successfully", {
+      userId: req.user?._id?.toString(),
+    });
+
     return sendSuccess(res, { message: "FCM token updated." });
   }
 
