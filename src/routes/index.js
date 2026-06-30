@@ -27,6 +27,13 @@ const parkingRoutes     = require("./parking.routes");
 const moduleRoutes      = require("./module.routes");
 const { inviteRouter, inviteVerifyRouter } = require("./inviteLink.routes");
 const auditLogRoutes = require("./auditLog.routes");
+
+// ─── Payments (Razorpay) ──────────────────────────────────────────────────────
+// NOTE: the raw-body webhook endpoint (/api/v1/payments/webhook) is mounted
+// directly in app.js, BEFORE express.json(), and is therefore NOT part of
+// this router. Only the authenticated, JSON-bodied payment routes live here.
+const paymentRoutes = require("./payment.routes");
+
 // ─── Mount Routes ─────────────────────────────────────────────────────────────
 
 // Auth & user — no module gate
@@ -50,6 +57,9 @@ router.use("/parking",     protect, requireSociety, requireModule("parking"),   
 
 // Society module status + upgrade requests
 router.use("/modules", moduleRoutes);
+
+// Subscription payments — Razorpay (auth handled inside payment.routes.js)
+router.use("/payments", paymentRoutes);
 
 // Invite link — admin generates, public verifies
 router.use("/society",     inviteRouter);          // POST /society/:id/invite-link

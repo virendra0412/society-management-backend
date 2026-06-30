@@ -52,6 +52,17 @@ const envSchema = Joi.object({
   // Public URL of the mobile/web login screen, included in the
   // society-approved email so new admins know where to log in.
   APP_LOGIN_URL: Joi.string().optional().default(""),
+
+  // ── Razorpay (optional — payment routes return 503 until configured) ──────
+  // Dashboard → Settings → API Keys. For Trial 1, use TEST mode keys
+  // (rzp_test_xxxxx) — no business verification needed for test mode.
+  RAZORPAY_KEY_ID:         Joi.string().optional().default(""),
+  RAZORPAY_KEY_SECRET:     Joi.string().optional().default(""),
+  // Dashboard → Settings → Webhooks → create webhook → set a secret string
+  // here (any random string you choose, e.g. via `openssl rand -hex 20`).
+  // Must match exactly what you typed into the Razorpay dashboard webhook
+  // config screen.
+  RAZORPAY_WEBHOOK_SECRET: Joi.string().optional().default(""),
 }).unknown(true);
 
 const { error, value: validatedEnv } = envSchema.validate(process.env);
@@ -101,5 +112,11 @@ module.exports = {
     projectId:   validatedEnv.FIREBASE_PROJECT_ID,
     clientEmail: validatedEnv.FIREBASE_CLIENT_EMAIL,
     privateKey:  validatedEnv.FIREBASE_PRIVATE_KEY,
+  },
+
+  razorpayConfig: {
+    keyId:         validatedEnv.RAZORPAY_KEY_ID,
+    keySecret:     validatedEnv.RAZORPAY_KEY_SECRET,
+    webhookSecret: validatedEnv.RAZORPAY_WEBHOOK_SECRET,
   },
 };
