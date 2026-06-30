@@ -40,6 +40,13 @@ class ModuleController {
   /**
    * POST /api/v1/modules/request-upgrade
    * Admin submits an upgrade request for a locked module.
+   *
+   * FALLBACK PATH ONLY — the mobile app's primary flow is now
+   * POST /payments/modules/create-order (immediate Razorpay payment that
+   * enables the module on success, no human review). This endpoint stays
+   * for societies where RAZORPAY_KEY_ID isn't configured on the server
+   * (config/razorpay.js returns 503 from the payment routes in that case),
+   * so there's still a way to ask for a module without online payment.
    */
   async requestUpgrade(req, res) {
     const result = await superAdminService.requestModuleUpgrade(req.societyId, req.body.module);

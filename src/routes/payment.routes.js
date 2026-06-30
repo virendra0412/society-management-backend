@@ -9,9 +9,10 @@
  *
  * Route map:
  *   GET  /payments/pricing                       any logged-in user — standard price table
- *   GET  /payments/my-pricing                     any logged-in user — effective price for THIS society (custom or standard)
- *   POST /payments/subscription/create-order      admin only — start a payment
- *   POST /payments/subscription/verify             admin only — confirm payment
+ *   GET  /payments/my-pricing                     any logged-in user — effective price for THIS society (custom or standard), plan AND per-module
+ *   POST /payments/subscription/create-order      admin only — start a plan payment
+ *   POST /payments/modules/create-order            admin only — start a "pick your own modules" payment
+ *   POST /payments/subscription/verify             admin only — confirm payment (serves both flows above)
  *   GET  /payments/subscription/history            admin only — past payments
  */
 const express = require("express");
@@ -35,6 +36,14 @@ router.post(
   actionLimiter,
   validate(v.createOrder),
   ctrl.createOrder
+);
+
+router.post(
+  "/modules/create-order",
+  requireRole("admin"),
+  actionLimiter,
+  validate(v.createModulesOrder),
+  ctrl.createModulesOrder
 );
 
 router.post(

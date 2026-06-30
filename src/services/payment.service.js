@@ -1,32 +1,47 @@
 /**
  * services/payment.service.js
  *
- * Core Razorpay business logic. Three entry points:
+ * Core Razorpay business logic. Five entry points:
  *
- *   1. createSubscriptionOrder()  → POST /payments/subscription/create-order
+ *   1. createSubscriptionOrder() → POST /payments/subscription/create-order
  *      Society admin picks a plan + cycle. We create a Razorpay Order and
  *      a local Payment record (status: "created"). Frontend opens Razorpay
  *      Checkout with the returned order id.
  *
- *   2. verifyAndApplyPayment()    → POST /payments/subscription/verify
+ *   2. createModulesOrder()      → POST /payments/modules/create-order
+ *      Society admin hand-picks one or more locked PAID_MODULES (checkbox
+ *      multi-select on the upgrade screen) instead of buying a whole plan.
+ *      Same order/Payment-record shape as (1), purchaseType: "modules".
+ *      This REPLACES the old manual "Request Upgrade → SA reviews → SA
+ *      enables module by hand" flow — payment now enables the module(s)
+ *      immediately and automatically, no human in the loop.
+ *
+ *   3. verifyAndApplyPayment()   → POST /payments/subscription/verify
  *      Frontend calls this immediately after Razorpay Checkout succeeds
  *      (handler callback), passing back razorpay_order_id, razorpay_payment_id,
- *      razorpay_signature. We verify the HMAC signature, then extend the
- *      society's Subscription.
+ *      razorpay_signature. We verify the HMAC signature, then branch on
+ *      payment.purchaseType to either extend the Subscription (plan) or
+ *      flip enabledModules booleans (modules). Same endpoint serves both —
+ *      the Payment record itself already knows which one it is.
  *
- *   3. handleWebhookEvent()       → POST /payments/webhook
- *      Safety net in case step 2 never runs (app killed right after payment,
+ *   4. handleWebhookEvent()      → POST /payments/webhook
+ *      Safety net in case step 3 never runs (app killed right after payment,
  *      network drop, etc). Razorpay calls this server-to-server. We verify
  *      a DIFFERENT signature (webhook secret, not key secret) and apply the
- *      same subscription update — guarded by Payment.status to stay idempotent.
+ *      same update — guarded by Payment.status to stay idempotent.
+ *
+ *   5. getMyEffectivePricing()   → GET /payments/my-pricing
+ *      Effective plan price AND effective per-module prices for the logged-in
+ *      society, so the frontend never has to compute or guess a number.
  */
 const crypto = require("crypto");
 
 const { getRazorpayClient } = require("../config/razorpay");
-const { getPricing, getAllPricing } = require("../config/pricing");
+const { getPricing, getAllPricing, getModulesPricing } = require("../config/pricing");
 const { Payment }           = require("../models/payment.model");
 const { Subscription }      = require("../models/subscription.model");
 const Society                = require("../models/society.model").Society;
+const { PAID_MODULES, DEFAULT_MODULE_PRICES } = require("../models/society.model");
 const AppError              = require("../utils/AppError");
 const logger                = require("../utils/logger");
 const { notifySociety }     = require("../utils/notification");
@@ -129,6 +144,116 @@ class PaymentService {
   }
 
   /**
+   * Create a Razorpay Order for a custom, hand-picked set of paid modules —
+   * the "pick your own modules" checkout flow. This is what replaces the
+   * old manual upgrade-request-to-SA flow: the admin checks the modules
+   * they want on the upgrade screen, sees a running total, and pays
+   * immediately. No SA approval step — payment success enables the
+   * module(s) directly.
+   *
+   * Amount is always computed server-side from each module's price — never
+   * trust client-supplied amounts. Uses the society's negotiated
+   * moduleCharges if a Super Admin has set one for a given module, exactly
+   * mirroring what getModuleStatus() already displays to the admin, so the
+   * price shown on the upgrade screen is exactly what gets charged.
+   *
+   * @param {string[]} moduleKeys — e.g. ["visitors", "maintenance"]. Modules
+   *   already enabled for the society are silently dropped from the order
+   *   (defensive — the frontend shouldn't offer them as selectable in the
+   *   first place, but never trust the client).
+   */
+  async createModulesOrder(societyId, adminUserId, moduleKeys) {
+    const society = await Society.findById(societyId, "name enabledModules moduleCharges");
+    if (!society) throw AppError.notFound("Society not found.");
+
+    // Drop anything already enabled or not a recognized paid module — the
+    // Joi validator already restricts moduleKeys to PAID_MODULES, this is
+    // just the "already owns it" defensive filter.
+    const purchasable = [...new Set(moduleKeys)].filter(
+      (key) => PAID_MODULES.includes(key) && !society.enabledModules?.[key]
+    );
+
+    if (purchasable.length === 0) {
+      throw AppError.badRequest(
+        "All selected modules are already enabled, or no valid modules were selected."
+      );
+    }
+
+    const { amountRupees, amountPaise, breakdown } = getModulesPricing(
+      purchasable,
+      society.moduleCharges
+    );
+
+    // True if ANY selected module is priced off a society-specific override
+    // rather than the platform default — surfaced to the frontend so it can
+    // show "special pricing" the same way the plan-purchase flow does.
+    const isCustomPricing = breakdown.some((b) => {
+      const def = DEFAULT_MODULE_PRICES[b.module] ?? 0;
+      return b.amountRupees !== def;
+    });
+
+    const razorpay = getRazorpayClient();
+    const receipt = `mod_${societyId.toString().slice(-8)}_${Date.now().toString().slice(-8)}`;
+
+    let order;
+    try {
+      order = await razorpay.orders.create({
+        amount:   amountPaise,
+        currency: "INR",
+        receipt,
+        notes: {
+          societyId: societyId.toString(),
+          modules:   purchasable.join(","),
+          isCustomPricing: isCustomPricing ? "true" : "false",
+        },
+      });
+    } catch (err) {
+      logger.error("[Payment] Razorpay modules order creation failed", {
+        error: err?.error?.description || err.message,
+        societyId,
+        modules: purchasable,
+      });
+      throw AppError.badRequest(
+        err?.error?.description || "Could not create payment order. Please try again."
+      );
+    }
+
+    const payment = await Payment.create({
+      society:        societyId,
+      initiatedBy:    adminUserId,
+      purchaseType:   "modules",
+      modules:        purchasable,
+      amount:         amountRupees,
+      currency:       "INR",
+      razorpayOrderId: order.id,
+      status:         "created",
+      isCustomPricing,
+    });
+
+    logger.info("[Payment] Modules order created", {
+      paymentId: payment._id.toString(),
+      razorpayOrderId: order.id,
+      societyId,
+      modules: purchasable,
+      amountRupees,
+      isCustomPricing,
+    });
+
+    return {
+      paymentId:   payment._id,
+      orderId:     order.id,
+      amount:      amountPaise,
+      amountRupees,
+      currency:    "INR",
+      keyId:       require("../config/razorpay").keyId,
+      societyName: society.name,
+      modules:     purchasable,
+      breakdown,
+      isCustomPricing,
+    };
+  }
+
+  /**
    * Verify the HMAC signature Razorpay Checkout returns to the client on
    * successful payment. Formula per Razorpay docs:
    *   expected = HMAC_SHA256(order_id + "|" + payment_id, key_secret)
@@ -185,9 +310,72 @@ class PaymentService {
     payment.paidAt            = new Date();
     await payment.save();
 
-    await this._applySubscriptionExtension(payment, adminUserId);
+    await this._applyPaymentEffect(payment, adminUserId);
 
     return { alreadyProcessed: false, payment };
+  }
+
+  /**
+   * Dispatches to the right side-effect based on what was purchased.
+   * Shared by both the /verify path and the webhook path, exactly like
+   * _applySubscriptionExtension was before — now it's one of two branches.
+   */
+  async _applyPaymentEffect(payment, performedByUserId) {
+    if (payment.purchaseType === "modules") {
+      return this._applyModuleUnlock(payment);
+    }
+    return this._applySubscriptionExtension(payment, performedByUserId);
+  }
+
+  /**
+   * Enable the purchased module(s) on the society immediately — this is the
+   * entire replacement for the old "admin requests → SA reviews → SA
+   * manually flips enabledModules" flow. Payment success IS the approval.
+   *
+   * Idempotent by construction: setting enabledModules.X = true twice is a
+   * no-op the second time, so a duplicate webhook delivery is harmless.
+   */
+  async _applyModuleUnlock(payment) {
+    const update = {};
+    for (const key of payment.modules) {
+      update[`enabledModules.${key}`] = true;
+    }
+
+    const society = await Society.findByIdAndUpdate(
+      payment.society,
+      { $set: update },
+      { new: true }
+    ).select("name admin").populate({ path: "admin", select: "fcmToken" });
+
+    if (!society) {
+      logger.error("[Payment] Society not found while applying module unlock", {
+        societyId: payment.society.toString(),
+        paymentId: payment._id.toString(),
+      });
+      return;
+    }
+
+    logger.info("[Payment] Modules unlocked after payment", {
+      societyId: payment.society.toString(),
+      modules: payment.modules,
+      paymentId: payment._id.toString(),
+    });
+
+    // Notify the admin who paid
+    try {
+      const tokens = [society?.admin?.fcmToken].filter(Boolean);
+      if (tokens.length) {
+        await notifySociety(tokens, {
+          title:   "✅ Payment successful",
+          body:    `${payment.modules.join(", ")} ${payment.modules.length > 1 ? "are" : "is"} now active for ${society.name}.`,
+          type:    "module_payment_success",
+          payload: { modules: payment.modules },
+          societyId: payment.society,
+        });
+      }
+    } catch (err) {
+      logger.warn("[Payment] Post-payment (modules) push notification failed (non-fatal)", { error: err.message });
+    }
   }
 
   /**
@@ -328,7 +516,7 @@ class PaymentService {
         payment.status            = "paid";
         payment.paidAt            = new Date();
         await payment.save();
-        await this._applySubscriptionExtension(payment, payment.initiatedBy);
+        await this._applyPaymentEffect(payment, payment.initiatedBy);
         logger.info("[Payment] Webhook applied subscription extension", { orderId, event });
       } else {
         await payment.save(); // still log the webhook event even if already processed
@@ -368,15 +556,33 @@ class PaymentService {
    * the upgrade screen display "Your price: ₹10/month" instead of the
    * generic price list, without the frontend needing to know about
    * customPricing at all.
+   *
+   * Also returns `modulePricing` — the effective per-module price for every
+   * currently-locked paid module, so the "pick your own modules" checkout
+   * screen can render checkboxes with real prices in one call, instead of
+   * a second round-trip to /modules/status.
    */
   async getMyEffectivePricing(societyId) {
     const sub = await Subscription.findOne({ society: societyId });
     const standard = getAllPricing();
 
+    const society = await Society.findById(societyId, "enabledModules moduleCharges").lean();
+    const modulePricing = {};
+    for (const key of PAID_MODULES) {
+      const isEnabled = society?.enabledModules?.[key] === true;
+      const custom = society?.moduleCharges?.[key];
+      const def = DEFAULT_MODULE_PRICES[key] ?? 0;
+      modulePricing[key] = {
+        enabled:        isEnabled,
+        amountRupees:   custom != null ? custom : def,
+        isCustomPricing: custom != null && custom !== def,
+      };
+    }
+
     const hasCustom = Boolean(sub?.customPricing?.enabled && sub.customPricing.monthlyRupees != null);
 
     if (!hasCustom) {
-      return { isCustomPricing: false, pricing: standard };
+      return { isCustomPricing: false, pricing: standard, modulePricing };
     }
 
     // Re-derive the cycle table (monthly/quarterly/halfyearly/annual) using
@@ -400,6 +606,7 @@ class PaymentService {
       customMonthlyRupees: sub.customPricing.monthlyRupees,
       note: sub.customPricing.note,
       pricing: { [plan]: table },
+      modulePricing,
     };
   }
 }

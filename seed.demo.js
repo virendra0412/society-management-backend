@@ -6,6 +6,25 @@
  * ║  Run:  node seed.demo.js                                                    ║
  * ║  Env:  MONGODB_URI  (defaults to mongodb://127.0.0.1:27017/society_db)     ║
  * ║                                                                              ║
+ * ║  Testing Razorpay "pick your own modules" checkout                          ║
+ * ║  ──────────────────────────────────────────────────────────────────────── ║
+ * ║  Set these in .env before running the server (any society can then test):  ║
+ * ║    RAZORPAY_KEY_ID      = rzp_test_xxxxxxxxxxxxxxxx                        ║
+ * ║    RAZORPAY_KEY_SECRET  = xxxxxxxxxxxxxxxxxxxxxxxxx                        ║
+ * ║    RAZORPAY_WEBHOOK_SECRET = (optional for local testing — only needed     ║
+ * ║                               for the /payments/webhook safety-net route)  ║
+ * ║  Without these set, /payments/* routes return 503 PAYMENTS_NOT_CONFIGURED  ║
+ * ║  and the old /modules/request-upgrade fallback flow is used instead.       ║
+ * ║                                                                              ║
+ * ║  Societies seeded with LOCKED paid modules to buy in the test flow:        ║
+ * ║    Sunrise Residency  → analytics (₹49 custom rate), multilang (₹199)      ║
+ * ║    Green Valley       → maintenance, amenities, events, parking,           ║
+ * ║                         community, analytics, multilang (all standard)    ║
+ * ║  Login as either society's admin (credentials below) → More → Upgrade →   ║
+ * ║  check the boxes next to any locked module → Pay. Test card:               ║
+ * ║  4111 1111 1111 1111, any future expiry, any CVV. Test UPI:                ║
+ * ║  success@razorpay.                                                         ║
+ * ║                                                                              ║
  * ║  What gets created                                                          ║
  * ║  ──────────────────────────────────────────────────────────────────────── ║
  * ║  SuperAdmin          :  1  (superadmin@societyapp.com / SuperAdmin@123)    ║
@@ -156,11 +175,23 @@ async function seed() {
     joinMode:   "approval",
     totalUnits: 240,
     isActive:   true,
+    // NOTE: analytics + multilang are intentionally left LOCKED (false) here
+    // so there's something to buy on the upgrade screen for testing the
+    // Razorpay "pick your own modules" checkout flow end-to-end. Every
+    // other paid module is pre-enabled so existing TCs that assume e.g.
+    // visitors/maintenance/amenities work continue to pass unchanged.
     enabledModules: {
       notices: true, polls: true, contacts: true,
       issues: true, visitors: true, maintenance: true,
       amenities: true, events: true, parking: true,
-      community: true, analytics: true, multilang: false,
+      community: true, analytics: false, multilang: false,
+    },
+    // Negotiated rate on analytics — ₹49 instead of the ₹399 default — so
+    // the "special pricing" badge on the checkout screen has something real
+    // to show when testing the custom-pricing path (mirrors how
+    // Subscription.customPricing already works for whole-plan purchases).
+    moduleCharges: {
+      analytics: 49,
     },
   });
 
@@ -1259,6 +1290,22 @@ async function seed() {
   console.log(` ${c.cyan}resident${c.reset} ⏳ pending      │ amit.desai@resident.com            │ Resident@0001     │ flat E-505 (pending)`);
   console.log(` ${c.cyan}resident${c.reset} (GV)            │ kavya.sharma@resident.com          │ Resident@GV01     │ Green Valley GV-201`);
   console.log(` ${c.cyan}resident${c.reset} (BH suspended)  │ raj.bhatt@resident.com             │ Resident@BH01     │ Blue Horizon BH-201`);
+  console.log(`${LINE}\n`);
+
+  console.log(`${c.bold}💳  RAZORPAY MODULE PURCHASE — TEST FLOW${c.reset}`);
+  console.log(LINE);
+  console.log(`    Set RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET in .env (rzp_test_... keys),`);
+  console.log(`    then login as any society admin → More → Upgrade → check modules → Pay.`);
+  console.log(`    Test card: 4111 1111 1111 1111, any future expiry, any CVV.`);
+  console.log(`    Test UPI:  success@razorpay`);
+  console.log(``);
+  console.log(`    Sunrise Residency  (admin@sunriseresidency.com / Admin@1234)`);
+  console.log(`      🔒 analytics  — ${c.yellow}₹49${c.reset} (custom rate, default is ₹399 — tests custom pricing badge)`);
+  console.log(`      🔒 multilang  — ₹199 (standard rate)`);
+  console.log(``);
+  console.log(`    Green Valley       (admin@greenvalley.com / Admin@5678)`);
+  console.log(`      🔒 maintenance, amenities, events, parking, community, analytics, multilang`);
+  console.log(`      — all at standard rates, good for testing a larger multi-select + bigger total`);
   console.log(`${LINE}\n`);
 
   console.log(`${c.bold}📋  SOCIETY APPLICATIONS${c.reset}  (SA module testing)`);

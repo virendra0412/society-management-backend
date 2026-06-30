@@ -53,9 +53,16 @@ const updateSubscription = Joi.object({
 // vs "negotiate a custom rate" — stay independently auditable.
 //   enabled=true  + monthlyRupees → next order uses this rate instead of the standard one
 //   enabled=false                → reverts to standard plan pricing (monthlyRupees optional, kept for history)
+//
+// monthlyRupees allows 0 — a fully-comped society (e.g. a friend's pilot,
+// an internal demo account). NOTE: a literal ₹0 Razorpay order is not
+// actually possible (Razorpay's own minimum is ₹1 / 100 paise), so
+// payment.service.js / config/pricing.js treat monthlyRupees: 0 as "this
+// society should never be asked to pay" rather than "charge them ₹0" —
+// see SASocietyPricing.jsx's guidance text for what this means in practice.
 const setCustomPricing = Joi.object({
   enabled:       Joi.boolean().required(),
-  monthlyRupees: Joi.number().min(1).max(1000000)
+  monthlyRupees: Joi.number().min(0).max(1000000)
                    .when("enabled", { is: true, then: Joi.required() }),
   note:          Joi.string().max(300).trim().allow("").optional(),
 });

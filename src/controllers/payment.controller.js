@@ -46,8 +46,33 @@ class PaymentController {
   }
 
   /**
+   * POST /api/v1/payments/modules/create-order
+   * Body: { modules: ["visitors", "maintenance", ...] }
+   *
+   * "Pick your own modules" checkout — replaces the old manual
+   * request-upgrade-then-wait-for-SA flow. Payment success enables the
+   * selected module(s) immediately (see verifyPayment / webhook below).
+   */
+  async createModulesOrder(req, res) {
+    const result = await paymentService.createModulesOrder(
+      req.societyId,
+      req.user._id,
+      req.body.modules
+    );
+    return sendSuccess(res, {
+      statusCode: 201,
+      message: "Order created.",
+      data: result,
+    });
+  }
+
+  /**
    * POST /api/v1/payments/subscription/verify
    * Called by the mobile app's Razorpay Checkout success handler.
+   * Serves BOTH purchase flows — the Payment record (looked up by
+   * razorpay_order_id) already knows whether it's a "plan" or "modules"
+   * purchase via its purchaseType field, so this single endpoint branches
+   * internally rather than needing two separate verify routes.
    */
   async verifyPayment(req, res) {
     const { alreadyProcessed, payment } = await paymentService.verifyAndApplyPayment(

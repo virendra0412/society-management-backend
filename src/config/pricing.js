@@ -98,12 +98,20 @@ function getPricing(plan, billingCycle, overrideMonthlyRupees = null) {
     const AppError = require("../utils/AppError");
     throw AppError.badRequest(`Invalid plan/billingCycle combination: ${plan}/${billingCycle}`);
   }
-  // Razorpay rejects orders below ₹1 (100 paise). A custom price of ₹0
-  // should be modeled as the "free" plan instead, which never reaches this
-  // payable-order code path — so this is a defensive guard, not the normal case.
+  // Razorpay rejects orders below ₹1 (100 paise). If a Super Admin has set
+  // this society's customPricing.monthlyRupees to 0 (fully comped), that
+  // society should never reach this payable-order code path in the first
+  // place — the upgrade screen should already be hiding the "Pay" button
+  // for a ₹0-rate society (see UpgradeScreen.jsx's isFreeOverride check).
+  // This is a defensive guard for if that ever gets bypassed, not the
+  // normal flow: a ₹0 society is granted access by setting their plan
+  // directly (SA → Manage Pricing → Grant Plan Directly), not by trying to
+  // process a ₹0 Razorpay order, which Razorpay itself won't accept.
   if (amountRupees < 1) {
     const AppError = require("../utils/AppError");
-    throw AppError.badRequest("Amount must be at least ₹1. Use the free plan for ₹0 societies.");
+    throw AppError.badRequest(
+      "This society has a ₹0 rate set — they should be granted the plan directly instead of paying ₹0 through Razorpay. Use 'Grant Plan Directly' in the Super Admin pricing screen."
+    );
   }
   return {
     amountRupees,
@@ -132,6 +140,59 @@ function getAllPricing() {
   return table;
 }
 
+/**
+ * Compute the rupee amount for purchasing a custom set of paid modules
+ * directly (no plan attached) — used by the "pick your own modules"
+ * checkout flow, as opposed to buying a fixed basic/premium plan.
+ *
+ * Per-module price comes from the society's negotiated `moduleCharges`
+ * if set, else falls back to DEFAULT_MODULE_PRICES — exactly the same
+ * resolution order the module-status screen already uses to DISPLAY
+ * prices, so what the admin sees on the upgrade screen is exactly what
+ * they're charged at checkout.
+ *
+ * @param {string[]} moduleKeys      - e.g. ["visitors", "maintenance"]
+ * @param {object}    moduleCharges   - society.moduleCharges (Mongoose subdoc or plain object), may be null
+ * @returns {{ amountRupees, amountPaise, breakdown: {module, amountRupees}[] }}
+ */
+function computeModulesAmountRupees(moduleKeys, moduleCharges = null) {
+  const { PAID_MODULES, DEFAULT_MODULE_PRICES } = require("../models/society.model");
+
+  const breakdown = moduleKeys.map((key) => {
+    if (!PAID_MODULES.includes(key)) {
+      const AppError = require("../utils/AppError");
+      throw AppError.badRequest(`'${key}' is not a valid paid module.`);
+    }
+    const custom = moduleCharges && moduleCharges[key] != null ? moduleCharges[key] : null;
+    const amountRupees = custom != null ? custom : (DEFAULT_MODULE_PRICES[key] ?? 0);
+    return { module: key, amountRupees };
+  });
+
+  const amountRupees = breakdown.reduce((sum, b) => sum + b.amountRupees, 0);
+  return { amountRupees, breakdown };
+}
+
+/**
+ * Returns { amountRupees, amountPaise, breakdown } for a set of modules,
+ * or throws if the total is below ₹1 (Razorpay's minimum) or the list is empty.
+ * Mirrors getPricing()'s defensive-guard pattern for plan purchases.
+ */
+function getModulesPricing(moduleKeys, moduleCharges = null) {
+  const AppError = require("../utils/AppError");
+  if (!Array.isArray(moduleKeys) || moduleKeys.length === 0) {
+    throw AppError.badRequest("Select at least one module to purchase.");
+  }
+  const { amountRupees, breakdown } = computeModulesAmountRupees(moduleKeys, moduleCharges);
+  if (amountRupees < 1) {
+    throw AppError.badRequest("Amount must be at least ₹1.");
+  }
+  return {
+    amountRupees,
+    amountPaise: amountRupees * 100,
+    breakdown,
+  };
+}
+
 module.exports = {
   BASE_MONTHLY_RUPEES,
   BILLING_CYCLES,
@@ -139,4 +200,6 @@ module.exports = {
   computeAmountRupees,
   getPricing,
   getAllPricing,
+  computeModulesAmountRupees,
+  getModulesPricing,
 };
