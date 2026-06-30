@@ -14,6 +14,13 @@ const { generalLimiter } = require("./middlewares/rateLimiter.middleware");
 const { allowedOrigins, env } = require("./config/env");
 const logger = require("./utils/logger");
 
+// Razorpay webhook — must be mounted with a RAW body parser, and must be
+// mounted BEFORE express.json() below, otherwise the JSON parser consumes
+// the request stream and signature verification against the raw bytes
+// becomes impossible.
+const { razorpayWebhookAuth } = require("./middlewares/razorpayWebhook.middleware");
+const paymentController = require("./controllers/payment.controller");
+
 const app = express();
 
 // ─── Security Headers (Helmet) ────────────────────────────────────────────────
@@ -35,10 +42,26 @@ app.use(
       callback(new Error(`CORS: origin ${origin} is not allowed`));
     },
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-razorpay-signature"],
     credentials: true,
     maxAge: 86400, // Preflight cache: 24h
   })
+);
+
+// ─── Razorpay Webhook (RAW body — must come before express.json()) ───────────
+// Razorpay calls this server-to-server whenever a payment event happens
+// (payment.captured, payment.failed, order.paid, etc). It is the safety net
+// for subscription activation in case the client-side /verify call never
+// fires (app killed right after payment, network drop, etc).
+//
+// Configure this exact URL in Razorpay Dashboard → Settings → Webhooks:
+//   https://your-domain.com/api/v1/payments/webhook
+// Events to subscribe to: payment.captured, payment.failed, order.paid
+app.post(
+  "/api/v1/payments/webhook",
+  express.raw({ type: "application/json", limit: "1mb" }),
+  razorpayWebhookAuth,
+  paymentController.webhook
 );
 
 // ─── Body Parsing ─────────────────────────────────────────────────────────────

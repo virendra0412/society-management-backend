@@ -77,6 +77,27 @@ class SuperAdminController {
     });
   }
 
+  /**
+   * PATCH /superadmin/societies/:id/custom-pricing
+   * Body: { enabled: boolean, monthlyRupees?: number, note?: string }
+   * Sets or clears a negotiated rate for this one society — e.g. a ₹10
+   * pilot customer or a ₹299 discount — which takes effect the next time
+   * the society's admin pays via Razorpay. No deploy needed.
+   */
+  async setCustomPricing(req, res) {
+    const subscription = await superAdminService.setCustomPricing(
+      req.params.id,
+      req.body,
+      req.superAdmin
+    );
+    return sendSuccess(res, {
+      message: req.body.enabled
+        ? `Custom price set to ₹${req.body.monthlyRupees}/month.`
+        : "Custom pricing cleared — reverted to standard plan rate.",
+      data: { subscription },
+    });
+  }
+
   async suspendSociety(req, res) {
     const result = await superAdminService.suspendSociety(req.params.id, req.body, req.superAdmin);
     return sendSuccess(res, { message: result.message });

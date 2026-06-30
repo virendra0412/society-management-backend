@@ -47,6 +47,19 @@ const updateSubscription = Joi.object({
   note:         Joi.string().max(300).trim().allow(""),   // history entry note
 }).min(1);
 
+// Sets (or clears) a negotiated per-society price that overrides the standard
+// plan rate the next time this society pays via Razorpay. Separate from
+// updateSubscription above so the two concerns — "change subscription state"
+// vs "negotiate a custom rate" — stay independently auditable.
+//   enabled=true  + monthlyRupees → next order uses this rate instead of the standard one
+//   enabled=false                → reverts to standard plan pricing (monthlyRupees optional, kept for history)
+const setCustomPricing = Joi.object({
+  enabled:       Joi.boolean().required(),
+  monthlyRupees: Joi.number().min(1).max(1000000)
+                   .when("enabled", { is: true, then: Joi.required() }),
+  note:          Joi.string().max(300).trim().allow("").optional(),
+});
+
 const transferAdmin = Joi.object({
   newAdminUserId: Joi.string().hex().length(24).optional()
     .messages({ "string.length": "Invalid user ID" }),
@@ -74,6 +87,7 @@ module.exports = {
   applyForSociety,
   reviewApplication,
   updateSubscription,
+  setCustomPricing,
   transferAdmin,
   reactivateSociety,
   suspendSociety,

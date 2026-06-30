@@ -326,6 +326,47 @@ class SuperAdminService {
     return updated;
   }
 
+  /**
+   * Set (or clear) a negotiated price for ONE society, overriding the
+   * standard plan rate the next time their admin pays via Razorpay.
+   * This is what actually lets you do "Society A → ₹10/month pilot,
+   * Society F → ₹299 discounted" without any code change or deploy —
+   * payment.service.js's createSubscriptionOrder() reads this field
+   * before falling back to config/pricing.js's standard rate.
+   */
+  async setCustomPricing(societyId, { enabled, monthlyRupees, note }, superAdmin) {
+    const society = await repo.findSocietyById(societyId);
+    if (!society) throw AppError.notFound("Society not found.");
+
+    const currentSub = await repo.findSubscriptionBySociety(societyId);
+    if (!currentSub) throw AppError.notFound("No subscription found for this society.");
+
+    const historyEntry = {
+      action: enabled ? "custom_pricing_set" : "custom_pricing_cleared",
+      fromPlan:   currentSub.plan,
+      toPlan:     currentSub.plan,
+      fromStatus: currentSub.status,
+      toStatus:   currentSub.status,
+      note: enabled
+        ? `Custom price set to ₹${monthlyRupees}/month${note ? ` — ${note}` : ""}`
+        : `Custom pricing cleared — reverted to standard ${currentSub.plan} rate${note ? ` — ${note}` : ""}`,
+      performedBy: superAdmin._id,
+      performedAt: new Date(),
+    };
+
+    const updated = await repo.updateSubscription(societyId, {
+      customPricing: {
+        enabled,
+        monthlyRupees: enabled ? monthlyRupees : (currentSub.customPricing?.monthlyRupees ?? null),
+        note:   note || null,
+        setBy:  superAdmin._id,
+        setAt:  new Date(),
+      },
+      $push: { history: historyEntry },
+    });
+    return updated;
+  }
+
   async suspendSociety(societyId, { reason }, superAdmin) {
     const society = await repo.findSocietyById(societyId);
     if (!society) throw AppError.notFound("Society not found.");

@@ -8,8 +8,14 @@
  * Plans:
  *   trial   — 30 days free, max 50 residents, all features enabled. Auto-downgrades to "free" after expiry.
  *   free    — Permanent free plan, max 25 residents, core features (no expiry).
- *   basic   — ₹599/month, max 100 residents.
- *   premium — ₹999/month, unlimited residents, priority support.
+ *   basic   — ₹599/month standard rate, max 100 residents.
+ *   premium — ₹999/month standard rate, unlimited residents, priority support.
+ *
+ * Custom pricing:
+ *   Any society on "basic" or "premium" can have its actual Razorpay charge
+ *   overridden via `customPricing` — e.g. a ₹10 pilot customer or a ₹25,000/yr
+ *   builder partner — without touching code or deploying. See
+ *   `customPricing` field below and config/pricing.js for how it's applied.
  *
  * Status lifecycle:
  *   active → expired  (end-date passed, no renewal)
@@ -70,8 +76,25 @@ const subscriptionSchema = new mongoose.Schema(
     endDate:    { type: Date, required: true, index: true },
 
     // ── Billing ───────────────────────────────────────────────────────────────
-    priceMonthly: { type: Number, default: 0 },   // actual negotiated price (may differ from plan default)
+    priceMonthly: { type: Number, default: 0 },   // last-paid monthly rate (record only — set automatically after each payment)
     autoRenew:    { type: Boolean, default: false },
+
+    // ── Custom / negotiated pricing ─────────────────────────────────────────────
+    // Lets a Super Admin override the standard plan price for ONE society —
+    // e.g. ₹10/month pilot customer, ₹25,000/year builder partner, ₹299
+    // discounted rate. When enabled, payment.service.js uses
+    // customPricing.monthlyRupees instead of config/pricing.js's fixed
+    // BASE_MONTHLY_RUPEES when creating the next Razorpay order. This is the
+    // ONLY thing that actually changes what Razorpay charges — priceMonthly
+    // above is just a historical record of the last payment, it is not read
+    // when computing a new order's amount.
+    customPricing: {
+      enabled:       { type: Boolean, default: false },
+      monthlyRupees: { type: Number,  default: null },   // e.g. 10, 299, 2083 (=25000/12)
+      note:          { type: String,  trim: true, maxlength: [300, "Note too long"], default: null },
+      setBy:         { type: mongoose.Schema.Types.ObjectId, ref: "SuperAdmin", default: null },
+      setAt:         { type: Date, default: null },
+    },
 
     // ── Cancellation ──────────────────────────────────────────────────────────
     cancelledAt:   { type: Date,   default: null },
