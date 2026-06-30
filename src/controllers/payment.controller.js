@@ -17,6 +17,18 @@ class PaymentController {
   }
 
   /**
+   * GET /api/v1/payments/my-pricing
+   * The EFFECTIVE price for the logged-in society — shows their custom
+   * negotiated rate (if a Super Admin set one) instead of the standard
+   * plan table. Use this on the upgrade screen instead of /pricing when
+   * you want to show "your price" rather than the generic price list.
+   */
+  async getMyPricing(req, res) {
+    const result = await paymentService.getMyEffectivePricing(req.societyId);
+    return sendSuccess(res, { data: result });
+  }
+
+  /**
    * POST /api/v1/payments/subscription/create-order
    * Body: { plan: "basic"|"premium", billingCycle: "monthly"|"quarterly"|"halfyearly"|"annual" }
    */

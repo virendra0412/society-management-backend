@@ -8,7 +8,8 @@
  * signature verification. See app.js for the full explanation.
  *
  * Route map:
- *   GET  /payments/pricing                       any logged-in user — price table
+ *   GET  /payments/pricing                       any logged-in user — standard price table
+ *   GET  /payments/my-pricing                     any logged-in user — effective price for THIS society (custom or standard)
  *   POST /payments/subscription/create-order      admin only — start a payment
  *   POST /payments/subscription/verify             admin only — confirm payment
  *   GET  /payments/subscription/history            admin only — past payments
@@ -26,6 +27,7 @@ const v                           = require("../validators/payment.validator");
 router.use(protect, requireSociety);
 
 router.get("/pricing", ctrl.getPricing);
+router.get("/my-pricing", ctrl.getMyPricing);
 
 router.post(
   "/subscription/create-order",

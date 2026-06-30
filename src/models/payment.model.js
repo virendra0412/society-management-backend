@@ -45,6 +45,11 @@ const paymentSchema = new mongoose.Schema(
     // ── Money ─────────────────────────────────────────────────────────────────
     amount:   { type: Number, required: true }, // rupees (not paise) — for display/reporting
     currency: { type: String, default: "INR" },
+    // True when this order was priced using the society's Subscription.customPricing
+    // override rather than config/pricing.js's standard plan rate. Kept on the
+    // payment record (not just the subscription) so historical reports can show
+    // exactly what rate was charged at the time, even if customPricing is later changed.
+    isCustomPricing: { type: Boolean, default: false },
 
     // ── Razorpay identifiers ─────────────────────────────────────────────────
     razorpayOrderId:   { type: String, required: true, unique: true, index: true },

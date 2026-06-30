@@ -23,7 +23,7 @@
 const crypto = require("crypto");
 
 const { getRazorpayClient } = require("../config/razorpay");
-const { getPricing }        = require("../config/pricing");
+const { getPricing, getAllPricing } = require("../config/pricing");
 const { Payment }           = require("../models/payment.model");
 const { Subscription }      = require("../models/subscription.model");
 const Society                = require("../models/society.model").Society;
@@ -36,14 +36,30 @@ const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || "";
 class PaymentService {
   /**
    * Step 1 — Create a Razorpay Order for a subscription plan purchase.
-   * Amount is always computed server-side from config/pricing.js — never
-   * trust a client-supplied amount.
+   * Amount is always computed server-side — never trust a client-supplied
+   * amount. Two sources, checked in order:
+   *
+   *   1. Subscription.customPricing — if a Super Admin has set a negotiated
+   *      rate for THIS society (e.g. ₹10 pilot, ₹299 discount), that rate is
+   *      used as the monthly base instead of config/pricing.js's standard
+   *      BASE_MONTHLY_RUPEES.
+   *   2. config/pricing.js standard rate — used for every other society.
+   *
+   * This is what makes per-society pricing actually take effect at checkout
+   * time, not just display as a number in the admin panel.
    */
   async createSubscriptionOrder(societyId, adminUserId, { plan, billingCycle }) {
     const society = await Society.findById(societyId).select("name");
     if (!society) throw AppError.notFound("Society not found.");
 
-    const { amountRupees, amountPaise, months } = getPricing(plan, billingCycle);
+    const sub = await Subscription.findOne({ society: societyId });
+    const customMonthlyRupees =
+      sub?.customPricing?.enabled && sub.customPricing.monthlyRupees != null
+        ? sub.customPricing.monthlyRupees
+        : null;
+
+    const { amountRupees, amountPaise, months, isCustomPricing } =
+      getPricing(plan, billingCycle, customMonthlyRupees);
 
     const razorpay = getRazorpayClient();
 
@@ -60,6 +76,7 @@ class PaymentService {
           societyId: societyId.toString(),
           plan,
           billingCycle,
+          customPricing: isCustomPricing ? "true" : "false",
         },
       });
     } catch (err) {
@@ -84,6 +101,7 @@ class PaymentService {
       currency:           "INR",
       razorpayOrderId:    order.id,
       status:             "created",
+      isCustomPricing,
     });
 
     logger.info("[Payment] Order created", {
@@ -93,6 +111,7 @@ class PaymentService {
       plan,
       billingCycle,
       amountRupees,
+      isCustomPricing,
     });
 
     return {
@@ -105,6 +124,7 @@ class PaymentService {
       societyName: society.name,
       plan,
       billingCycle,
+      isCustomPricing,
     };
   }
 
@@ -339,6 +359,48 @@ class PaymentService {
       Payment.countDocuments({ society: societyId }),
     ]);
     return { items, total, page, limit };
+  }
+
+  /**
+   * GET /payments/my-pricing
+   * Shows the EFFECTIVE price for the logged-in society — their custom
+   * negotiated rate if one is set, otherwise the standard plan rate. Lets
+   * the upgrade screen display "Your price: ₹10/month" instead of the
+   * generic price list, without the frontend needing to know about
+   * customPricing at all.
+   */
+  async getMyEffectivePricing(societyId) {
+    const sub = await Subscription.findOne({ society: societyId });
+    const standard = getAllPricing();
+
+    const hasCustom = Boolean(sub?.customPricing?.enabled && sub.customPricing.monthlyRupees != null);
+
+    if (!hasCustom) {
+      return { isCustomPricing: false, pricing: standard };
+    }
+
+    // Re-derive the cycle table (monthly/quarterly/halfyearly/annual) using
+    // the custom monthly rate, same discount logic as standard pricing — but
+    // only for the society's CURRENT plan, since that's what's relevant here.
+    const { BILLING_CYCLES } = require("../config/pricing");
+    const plan = ["basic", "premium"].includes(sub.plan) ? sub.plan : "basic";
+    const table = {};
+    for (const cycleKey of Object.keys(BILLING_CYCLES)) {
+      const { amountRupees, months } = getPricing(plan, cycleKey, sub.customPricing.monthlyRupees);
+      table[cycleKey] = {
+        amountRupees,
+        months,
+        monthlyEquivalent: Math.round(amountRupees / months),
+      };
+    }
+
+    return {
+      isCustomPricing: true,
+      plan,
+      customMonthlyRupees: sub.customPricing.monthlyRupees,
+      note: sub.customPricing.note,
+      pricing: { [plan]: table },
+    };
   }
 }
 

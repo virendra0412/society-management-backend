@@ -56,16 +56,25 @@ const PAYABLE_PLANS = Object.freeze(["basic", "premium"]);
 /**
  * Compute the rupee amount for a given plan + billing cycle.
  * Returns null if the plan/cycle combination is invalid.
+ *
+ * @param {string} plan
+ * @param {string} billingCycle
+ * @param {number|null} overrideMonthlyRupees — if provided (a society's
+ *   negotiated customPricing.monthlyRupees), this replaces the plan's
+ *   standard BASE_MONTHLY_RUPEES for this calculation. The billing-cycle
+ *   discount logic still applies on top of it, so a custom monthly rate
+ *   still benefits from quarterly/half-yearly/annual discounts the same
+ *   way the standard rate does.
  */
-function computeAmountRupees(plan, billingCycle) {
+function computeAmountRupees(plan, billingCycle, overrideMonthlyRupees = null) {
   if (!PAYABLE_PLANS.includes(plan)) return null;
   const cycle = BILLING_CYCLES[billingCycle];
   if (!cycle) return null;
 
-  const base = BASE_MONTHLY_RUPEES[plan];
+  const base = overrideMonthlyRupees != null ? overrideMonthlyRupees : BASE_MONTHLY_RUPEES[plan];
 
   if (billingCycle === "annual") {
-    return base * cycle.payMonths; // e.g. 599 × 10 = 5990
+    return Math.round(base * cycle.payMonths); // e.g. custom 299 × 10 = 2990
   }
 
   const fullPrice = base * cycle.months;
@@ -78,17 +87,29 @@ function computeAmountRupees(plan, billingCycle) {
  * Returns { amountRupees, amountPaise, months } for a plan+cycle,
  * or throws if invalid (caller is expected to validate plan/cycle via Joi
  * first, but this is a defensive second check before touching money).
+ *
+ * @param {number|null} overrideMonthlyRupees — see computeAmountRupees above.
+ *   Pass the society's Subscription.customPricing.monthlyRupees here when
+ *   customPricing.enabled is true; omit/null for the standard rate.
  */
-function getPricing(plan, billingCycle) {
-  const amountRupees = computeAmountRupees(plan, billingCycle);
+function getPricing(plan, billingCycle, overrideMonthlyRupees = null) {
+  const amountRupees = computeAmountRupees(plan, billingCycle, overrideMonthlyRupees);
   if (amountRupees === null) {
     const AppError = require("../utils/AppError");
     throw AppError.badRequest(`Invalid plan/billingCycle combination: ${plan}/${billingCycle}`);
+  }
+  // Razorpay rejects orders below ₹1 (100 paise). A custom price of ₹0
+  // should be modeled as the "free" plan instead, which never reaches this
+  // payable-order code path — so this is a defensive guard, not the normal case.
+  if (amountRupees < 1) {
+    const AppError = require("../utils/AppError");
+    throw AppError.badRequest("Amount must be at least ₹1. Use the free plan for ₹0 societies.");
   }
   return {
     amountRupees,
     amountPaise: amountRupees * 100,
     months: BILLING_CYCLES[billingCycle].months,
+    isCustomPricing: overrideMonthlyRupees != null,
   };
 }
 
