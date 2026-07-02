@@ -171,7 +171,7 @@ const markExpiredSubscriptions = async () => {
   }
 
   // Handle expired paid plan subscriptions → mark as "expired" and gate paid modules
-  const paidFilter = { status: "active", plan: { $in: ["basic", "premium"] }, endDate: { $lt: now } };
+  const paidFilter = { status: "active", plan: { $in: ["starter", "professional", "enterprise"] }, endDate: { $lt: now } };
   const paidSubsToExpire = await Subscription.find(paidFilter, "society").lean();
   const paidSocietyIds = Array.from(new Set(paidSubsToExpire.map(s => s.society).filter(Boolean)));
 
