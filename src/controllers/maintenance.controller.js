@@ -172,7 +172,10 @@ class MaintenanceController {
 
   // ── Resident: My payment history ─────────────────────────────────────────
   async getMyPayments(req, res) {
-    const records = await maintenanceService.getMyPayments(req.user, req.query);
+    // BUGFIX: pass req.societyId (from JWT, always reliable) explicitly.
+    // The service previously derived societyId from user.society virtual
+    // which can be null if activeSocietyId is not set on the user doc.
+    const records = await maintenanceService.getMyPayments(req.user, req.societyId, req.query);
     return sendSuccess(res, {
       data: { payments: records },
     });
