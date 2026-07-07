@@ -534,9 +534,17 @@ class PaymentService {
     });
     await sub.save();
 
-    // Re-enable plan bundle modules
+    // Re-enable plan bundle modules.
+    // MODULE_BUNDLES keys ("starter","operations","fullstack") differ from plan
+    // names ("starter","professional","enterprise") — map them explicitly.
     try {
-      const bundleModules = MODULE_BUNDLES?.[payment.plan]?.modules;
+      const PLAN_TO_BUNDLE = {
+        starter:      "starter",
+        professional: "operations",
+        enterprise:   "fullstack",
+      };
+      const bundleKey    = PLAN_TO_BUNDLE[payment.plan];
+      const bundleModules = bundleKey ? MODULE_BUNDLES?.[bundleKey]?.modules : null;
       if (bundleModules?.length) {
         const enabledUpdate = {};
         for (const key of bundleModules) enabledUpdate[`enabledModules.${key}`] = true;

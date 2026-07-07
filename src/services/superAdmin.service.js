@@ -367,6 +367,96 @@ class SuperAdminService {
     return updated;
   }
 
+  /**
+   * Set or clear a coupon/discount for a society.
+   * Applied automatically at the next Razorpay order for this society.
+   *   clear: true  → removes discount entirely
+   *   pct / flatRupees → sets a percentage or fixed-amount discount
+   *   validUntil (optional) → auto-expires the discount on that date
+   */
+  async setDiscount(societyId, { code, pct, flatRupees, validUntil, note, clear }, superAdmin) {
+    const society = await repo.findSocietyById(societyId);
+    if (!society) throw AppError.notFound("Society not found.");
+
+    const currentSub = await repo.findSubscriptionBySociety(societyId);
+    if (!currentSub) throw AppError.notFound("No subscription found for this society.");
+
+    const discountValue = clear
+      ? { code: null, pct: null, flatRupees: null, validUntil: null, note: null, setBy: null, setAt: null }
+      : {
+          code:       code?.toUpperCase() || null,
+          pct:        pct    ?? null,
+          flatRupees: flatRupees ?? null,
+          validUntil: validUntil || null,
+          note:       note   || null,
+          setBy:      superAdmin._id,
+          setAt:      new Date(),
+        };
+
+    const actionNote = clear
+      ? `Discount cleared${note ? ` — ${note}` : ""}`
+      : pct
+        ? `${pct}% discount set${code ? ` (code: ${code})` : ""}${validUntil ? `, valid until ${new Date(validUntil).toDateString()}` : ""}${note ? ` — ${note}` : ""}`
+        : `₹${flatRupees} flat discount set${code ? ` (code: ${code})` : ""}${validUntil ? `, valid until ${new Date(validUntil).toDateString()}` : ""}${note ? ` — ${note}` : ""}`;
+
+    const updated = await repo.updateSubscription(societyId, {
+      discount: discountValue,
+      $push: {
+        history: {
+          action:      clear ? "discount_cleared" : "discount_set",
+          fromPlan:    currentSub.plan,
+          toPlan:      currentSub.plan,
+          fromStatus:  currentSub.status,
+          toStatus:    currentSub.status,
+          note:        actionNote,
+          performedBy: superAdmin._id,
+          performedAt: new Date(),
+        },
+      },
+    });
+    return updated;
+  }
+
+  /**
+   * Schedule a plan downgrade for this society at their next renewal date.
+   * The society keeps their current plan until endDate — then the job
+   * applies pendingPlan automatically. The mobile app shows a banner:
+   * "Starter plan begins on [endDate]".
+   */
+  async scheduleDowngrade(societyId, { toPlan, note }, superAdmin) {
+    const society = await repo.findSocietyById(societyId);
+    if (!society) throw AppError.notFound("Society not found.");
+
+    const currentSub = await repo.findSubscriptionBySociety(societyId);
+    if (!currentSub) throw AppError.notFound("No subscription found for this society.");
+    if (currentSub.status !== "active") throw AppError.badRequest("Society must have an active subscription to schedule a downgrade.");
+
+    const PLAN_ORDER = { trial: 0, free: 1, starter: 2, professional: 3, enterprise: 4 };
+    if ((PLAN_ORDER[toPlan] ?? -1) >= (PLAN_ORDER[currentSub.plan] ?? -1)) {
+      throw AppError.badRequest(`Cannot schedule a downgrade to ${toPlan} — it is the same or higher than the current plan (${currentSub.plan}). Use upgrade flow instead.`);
+    }
+
+    const updated = await repo.updateSubscription(societyId, {
+      pendingPlan:   toPlan,
+      pendingPlanAt: currentSub.endDate,
+      $push: {
+        history: {
+          action:      "downgrade_scheduled",
+          fromPlan:    currentSub.plan,
+          toPlan,
+          fromStatus:  currentSub.status,
+          toStatus:    currentSub.status,
+          note:        note
+            ? note
+            : `Downgrade to ${toPlan} scheduled for ${currentSub.endDate ? new Date(currentSub.endDate).toDateString() : "next renewal"}.`,
+          performedBy: superAdmin._id,
+          performedAt: new Date(),
+        },
+      },
+    });
+    return updated;
+  }
+
   async suspendSociety(societyId, { reason }, superAdmin) {
     const society = await repo.findSocietyById(societyId);
     if (!society) throw AppError.notFound("Society not found.");

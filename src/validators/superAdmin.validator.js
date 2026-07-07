@@ -67,6 +67,25 @@ const setCustomPricing = Joi.object({
   note:          Joi.string().max(300).trim().allow("").optional(),
 });
 
+// Set (or clear) a coupon/discount for a society.
+// Applied automatically at the next Razorpay order — on top of any
+// customPricing rate already set.  Either pct OR flatRupees, not both.
+const setDiscount = Joi.object({
+  code:        Joi.string().max(40).uppercase().trim().optional().allow(""),
+  pct:         Joi.number().min(1).max(100).optional(),
+  flatRupees:  Joi.number().min(1).max(100000).optional(),
+  validUntil:  Joi.date().iso().min("now").optional().allow(null),
+  note:        Joi.string().max(200).trim().allow("").optional(),
+  clear:       Joi.boolean().optional(),   // true = remove existing discount
+}).or("pct", "flatRupees", "clear");
+
+// Schedule a plan downgrade to take effect at next renewal.
+// Never downgrades immediately — society keeps current plan until endDate.
+const scheduleDowngrade = Joi.object({
+  toPlan: Joi.string().valid("free", "starter", "professional").required(),
+  note:   Joi.string().max(300).trim().allow("").optional(),
+});
+
 const transferAdmin = Joi.object({
   newAdminUserId: Joi.string().hex().length(24).optional()
     .messages({ "string.length": "Invalid user ID" }),
@@ -95,6 +114,8 @@ module.exports = {
   reviewApplication,
   updateSubscription,
   setCustomPricing,
+  setDiscount,
+  scheduleDowngrade,
   transferAdmin,
   reactivateSociety,
   suspendSociety,

@@ -28,18 +28,20 @@
  * ║  What gets created                                                          ║
  * ║  ──────────────────────────────────────────────────────────────────────── ║
  * ║  SuperAdmin          :  1  (superadmin@societyapp.com / SuperAdmin@123)    ║
- * ║  Societies           :  3  (Sunrise Residency + Green Valley + Blue Horizon)║
+ * ║  Societies           :  5  (Sunrise + Green Valley + Blue Horizon          ║
+ * ║                             + Palm Springs + Silver Oaks)                 ║
  * ║  SocietyApplications :  4  (1 approved, 2 pending, 1 rejected)            ║
- * ║  Subscriptions       :  3  (trial expiring soon + basic + free/suspended)  ║
- * ║  Users               : 30  (admin, committee members, residents, security,  ║
- * ║                             vendor, multi-society investor, pending)        ║
+ * ║  Subscriptions       :  5  (trial expiring + starter+customPricing +      ║
+ * ║                             professional + enterprise + suspended)        ║
+ * ║  Users               : 35  (admin, committee members, residents, security, ║
+ * ║                             vendor, multi-society investor, pending)       ║
  * ║  Issues              : 16  (all statuses, escalated, anonymous)            ║
  * ║  Notices             :  6  (2 pinned, 1 draft)                             ║
  * ║  Polls               :  3  (1 closed, 2 open)                              ║
  * ║  Help Posts          :  6  (with replies, upvotes, 1 closed)               ║
  * ║  Contacts            : 10  (Emergency / Committee / Vendor)                ║
  * ║  Visitors            : 20  (all statuses, walk-in, trusted, OTP)           ║
- * ║  MaintenanceBills    :  3  (published+payments, draft, overdue)            ║
+ * ║  MaintenanceBills    :  9  (6mo history, rich defaulters, partial pay)     ║
  * ║  Amenities           :  3  (Gym, Clubhouse, Pool)                          ║
  * ║  AmenityBookings     : 10  (confirmed, pending, cancelled)                 ║
  * ║  Events              :  4  (past, upcoming, draft, cancelled)              ║
@@ -263,12 +265,31 @@ async function seed() {
   });
 
   await Subscription.create({
-    society: greenValley._id, plan: "basic", status: "active",
-    startDate: daysAgo(60), endDate: daysFromNow(305), priceMonthly: 599,
-    history: [{ action: "created", toPlan: "basic", toStatus: "active",
-      note: "Basic plan activated", performedAt: daysAgo(60) }],
+    society: greenValley._id, plan: "starter", status: "active",
+    startDate: daysAgo(60), endDate: daysFromNow(305),
+    billingAnchorDay: new Date(daysAgo(60)).getDate() > 28 ? 28 : new Date(daysAgo(60)).getDate(),
+    priceMonthly: 10,   // reflects the custom rate below
+    // ── Custom pricing for plan-level Razorpay testing ─────────────────────
+    // Green Valley pays ₹10/month instead of the standard ₹599 starter rate.
+    // Login as admin@greenvalley.com → Upgrade screen → "Special pricing"
+    // badge shows immediately; selecting any billing cycle prices off ₹10/mo
+    // (e.g. quarterly ≈ ₹28, not ₹1,653). Use to test discounted-society
+    // plan-purchase flow end-to-end. For fully-free (₹0), use Grant Plan
+    // Directly in SA portal — Razorpay can't process ₹0 orders.
+    customPricing: {
+      enabled: true,
+      monthlyRupees: 10,
+      note: "₹10/month pilot rate — seeded for Razorpay plan-purchase testing",
+      setAt: daysAgo(3),
+    },
+    history: [
+      { action: "created", toPlan: "starter", toStatus: "active",
+        note: "Starter plan activated", performedAt: daysAgo(60) },
+      { action: "custom_pricing_set",
+        note: "Custom rate ₹10/month set by Super Admin (seed data)", performedAt: daysAgo(3) },
+    ],
   });
-  log.ok(`Society "Green Valley" created  joinCode: ${c.bold}${c.yellow}${greenValley.joinCode}${c.reset}`);
+  log.ok(`Society "Green Valley" created  joinCode: ${c.bold}${c.yellow}${greenValley.joinCode}${c.reset}  (starter plan, ₹10/mo custom rate)`);
 
   // ══════════════════════════════════════════════════════════════════════════
   //  SOCIETY 3 — Blue Horizon (SUSPENDED — TC-MG-003, TC-SA-013/014)
@@ -318,6 +339,168 @@ async function seed() {
     ],
   });
   log.ok("Society \"Blue Horizon\" created (isActive: false — suspended)");
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  SOCIETY 4 — Palm Springs (PROFESSIONAL plan, active paid, full modules)
+  //  Tests: professional plan Razorpay flow, multi-month bills, SA pricing
+  // ══════════════════════════════════════════════════════════════════════════
+  log.section("Creating Society 4 — Palm Springs (Professional plan)");
+
+  const adminPS = await User.create({
+    name:     "Admin Palm Springs",
+    email:    "admin@palmsprings.com",
+    phone:    "+919812000001",
+    password: "Admin@PS01",
+    isActive: true,
+    memberships: [], activeSocietyId: null,
+  });
+
+  const palmSprings = await Society.create({
+    name:       "Palm Springs Society",
+    address:    "Vastrapur Lake Road",
+    city:       "Ahmedabad",
+    state:      "Gujarat",
+    admin:      adminPS._id,
+    joinMode:   "approval",
+    totalUnits: 200,
+    isActive:   true,
+    enabledModules: {
+      notices: true, polls: true, contacts: true,
+      issues: true, visitors: true, maintenance: true,
+      amenities: true, events: true, parking: true,
+      community: true, analytics: false, multilang: false,
+    },
+  });
+
+  await User.findByIdAndUpdate(adminPS._id, {
+    activeSocietyId: palmSprings._id,
+    memberships: [{
+      society: palmSprings._id, role: "admin",
+      flat: "PS-101", wing: "PS", isApproved: true, isActive: true,
+      committeeTitle: "Society Chairman",
+    }],
+  });
+
+  await Subscription.create({
+    society:          palmSprings._id,
+    plan:             "professional",
+    status:           "active",
+    startDate:        daysAgo(90),
+    endDate:          daysFromNow(275),
+    billingAnchorDay: 1,
+    priceMonthly:     999,
+    history: [
+      { action: "created",    toPlan: "professional", toStatus: "active",
+        note: "Professional plan — quarterly purchase via Razorpay", performedAt: daysAgo(90) },
+      { action: "renewed",    toPlan: "professional", toStatus: "active",
+        note: "Quarterly renewal — ₹2,757", performedAt: daysAgo(0) },
+    ],
+  });
+  log.ok(`Society "Palm Springs" created  joinCode: ${c.bold}${c.yellow}${palmSprings.joinCode}${c.reset}  (professional plan)`);
+
+  // Palm Springs residents for maintenance bills
+  const psResidentData = [
+    { name: "Vivek Malhotra",  email: "vivek.malhotra@ps.com",  phone: "+919812000010", flat: "PS-201", wing: "PS", pwd: "Resident@PS01" },
+    { name: "Sunita Agarwal",  email: "sunita.agarwal@ps.com",  phone: "+919812000011", flat: "PS-202", wing: "PS", pwd: "Resident@PS02" },
+    { name: "Nikhil Bose",     email: "nikhil.bose@ps.com",     phone: "+919812000012", flat: "PS-203", wing: "PS", pwd: "Resident@PS03" },
+    { name: "Fatima Khan",     email: "fatima.khan@ps.com",     phone: "+919812000013", flat: "PS-204", wing: "PS", pwd: "Resident@PS04" },
+    { name: "Rajan Pillai",    email: "rajan.pillai@ps.com",    phone: "+919812000014", flat: "PS-301", wing: "PS", pwd: "Resident@PS05" },
+    { name: "Geeta Choudhary", email: "geeta.choudhary@ps.com", phone: "+919812000015", flat: "PS-302", wing: "PS", pwd: "Resident@PS06" },
+    { name: "Sunil Varma",     email: "sunil.varma@ps.com",     phone: "+919812000016", flat: "PS-303", wing: "PS", pwd: "Resident@PS07" },
+    { name: "Puja Rao",        email: "puja.rao@ps.com",        phone: "+919812000017", flat: "PS-401", wing: "PS", pwd: "Resident@PS08" },
+    { name: "Aditya Sinha",    email: "aditya.sinha@ps.com",    phone: "+919812000018", flat: "PS-402", wing: "PS", pwd: "Resident@PS09" },
+    { name: "Lakshmi Naidu",   email: "lakshmi.naidu@ps.com",   phone: "+919812000019", flat: "PS-403", wing: "PS", pwd: "Resident@PS10" },
+  ];
+
+  const psResidents = [];
+  for (const rd of psResidentData) {
+    const u = await User.create({
+      name: rd.name, email: rd.email, phone: rd.phone, password: rd.pwd,
+      isActive: true,
+      activeSocietyId: palmSprings._id,
+      memberships: [{
+        society: palmSprings._id, role: "resident",
+        flat: rd.flat, wing: rd.wing, isApproved: true, isActive: true,
+      }],
+    });
+    psResidents.push(u);
+  }
+  log.ok(`10 residents created for Palm Springs`);
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  SOCIETY 5 — Silver Oaks (ENTERPRISE plan + scheduled downgrade pending)
+  //  Tests: enterprise plan, schedule-downgrade SA feature, SA custom discount
+  // ══════════════════════════════════════════════════════════════════════════
+  log.section("Creating Society 5 — Silver Oaks (Enterprise + pending downgrade)");
+
+  const adminSO = await User.create({
+    name:     "Admin Silver Oaks",
+    email:    "admin@silveroaks.com",
+    phone:    "+919812000002",
+    password: "Admin@SO01",
+    isActive: true,
+    memberships: [], activeSocietyId: null,
+  });
+
+  const silverOaks = await Society.create({
+    name:       "Silver Oaks Township",
+    address:    "Sindhu Bhavan Road",
+    city:       "Ahmedabad",
+    state:      "Gujarat",
+    admin:      adminSO._id,
+    joinMode:   "approval",
+    totalUnits: 500,
+    isActive:   true,
+    enabledModules: {
+      notices: true, polls: true, contacts: true,
+      issues: true, visitors: true, maintenance: true,
+      amenities: true, events: true, parking: true,
+      community: true, analytics: true, multilang: true,
+    },
+  });
+
+  await User.findByIdAndUpdate(adminSO._id, {
+    activeSocietyId: silverOaks._id,
+    memberships: [{
+      society: silverOaks._id, role: "admin",
+      flat: "SO-001", wing: "SO", isApproved: true, isActive: true,
+      committeeTitle: "Managing Director",
+    }],
+  });
+
+  await Subscription.create({
+    society:          silverOaks._id,
+    plan:             "enterprise",
+    status:           "active",
+    startDate:        daysAgo(30),
+    endDate:          daysFromNow(335),
+    billingAnchorDay: 1,
+    priceMonthly:     1799,
+    // Pending downgrade: enterprise → professional at next renewal
+    // Tests: SA scheduleDowngrade endpoint + subscription.job applyPendingDowngrades
+    // Mobile: login as admin@silveroaks.com → Upgrade screen shows yellow banner
+    pendingPlan:   "professional",
+    pendingPlanAt: daysFromNow(335),
+    // 15% discount active — for testing discount display on Upgrade screen
+    discount: {
+      code:       "SILVER15",
+      pct:        15,
+      flatRupees: null,
+      validUntil: daysFromNow(365),
+      note:       "15% loyalty discount for large township",
+      setAt:      daysAgo(30),
+    },
+    history: [
+      { action: "created", toPlan: "enterprise", toStatus: "active",
+        note: "Enterprise plan — annual purchase", performedAt: daysAgo(30) },
+      { action: "discount_set",
+        note: "15% loyalty discount set — code SILVER15, valid 1 year", performedAt: daysAgo(28) },
+      { action: "downgrade_scheduled", fromPlan: "enterprise", toPlan: "professional",
+        note: "Customer requested downgrade to Professional at next renewal (cost reduction)",
+        performedAt: daysAgo(5) },
+    ],
+  });
+  log.ok(`Society "Silver Oaks" created  joinCode: ${c.bold}${c.yellow}${silverOaks.joinCode}${c.reset}  (enterprise + downgrade scheduled + 15% discount)`);
 
   // ══════════════════════════════════════════════════════════════════════════
   //  SOCIETY APPLICATIONS  (TC-SA-007 to TC-SA-010, TC-OB-001 to TC-OB-007)
@@ -880,82 +1063,105 @@ async function seed() {
   log.ok(`${visitorDocs.length} visitors created (all statuses, OTP, trusted, walk-in, delivery)`);
 
   // ══════════════════════════════════════════════════════════════════════════
-  //  MAINTENANCE BILLS — 3  (TC-036 to TC-041, TC-CJ-015 to TC-CJ-018)
+  //  MAINTENANCE BILLS — 9  (TC-036 to TC-041, TC-CJ-015 to TC-CJ-018)
+  //  Sunrise Residency: 6 months history (Jan–Jun 2025) — rich defaulter data
+  //  Palm Springs:      3 months history — different bill amounts + partial pay
   // ══════════════════════════════════════════════════════════════════════════
   log.section("Seeding Maintenance Bills");
 
-  // Bill 1 — May 2025: Published, 8 payments (TC-036, TC-038, TC-039, TC-041)
-  const mayPayments = residents.map((res, i) => {
-    const roll = i % 5;
-    return {
-      resident:      res._id,
-      flat:          res.memberships[0]?.flat,
-      wing:          res.memberships[0]?.wing,
-      amount:        3000,
-      penalty:       roll === 0 ? 100 : 0,
-      discount:      0,
-      totalDue:      roll === 0 ? 3100 : 3000,
-      status:        roll < 2 ? "paid" : roll === 2 ? "overdue" : "unpaid",
-      paidAmount:    roll < 2 ? 3000 : 0,
-      paidAt:        roll < 2 ? daysAgo(10) : null,
-      paymentMethod: roll < 2 ? ["upi","neft","cheque","cash"][i % 4] : null,
-      transactionId: roll < 2 ? `TXN202505${String(i).padStart(4,"0")}` : null,
-      remindersSent: roll === 2 ? 2 : 0,
-      lastReminderAt:roll === 2 ? daysAgo(1) : null,
-      penaltyAppliedAt: roll === 0 ? daysAgo(5) : null,
-    };
-  });
-  // Also add Rohan Mehta (multi-society — TC-041)
-  mayPayments.push({
-    resident: rohanMehta._id, flat:"A-401", wing:"A",
-    amount:3000, penalty:0, discount:0, totalDue:3000,
-    status:"paid", paidAmount:3000, paidAt:daysAgo(8),
-    paymentMethod:"upi", transactionId:"TXN20250599",
-    remindersSent:0, lastReminderAt:null, penaltyAppliedAt:null,
-  });
+  // ── Helper: build a payment array for a list of residents ─────────────────
+  // statuses cycle in a deterministic pattern so the defaulter report always
+  // has the same flats in each category — easy to verify in the UI.
+  //
+  //  i % 6 === 0  → overdue  (with penalty)
+  //  i % 6 === 1  → overdue  (no penalty yet — recently due)
+  //  i % 6 === 2  → unpaid
+  //  i % 6 === 3  → paid     (UPI)
+  //  i % 6 === 4  → paid     (NEFT)
+  //  i % 6 === 5  → waived   (committee decision)
+  const buildPayments = (residentList, baseAmount, penaltyAmt, dueDate, paidAt) =>
+    residentList.map((res, i) => {
+      const roll    = i % 6;
+      const penalty = roll === 0 ? penaltyAmt : 0;
+      const status  = roll < 2 ? "overdue" : roll === 2 ? "unpaid" : roll < 5 ? "paid" : "waived";
+      const paid    = status === "paid";
+      const method  = paid ? ["upi", "neft", "cheque", "cash"][i % 4] : null;
+      return {
+        resident:       res._id,
+        flat:           res.memberships[0]?.flat,
+        wing:           res.memberships[0]?.wing,
+        amount:         baseAmount,
+        penalty,
+        discount:       0,
+        totalDue:       baseAmount + penalty,
+        status,
+        paidAmount:     paid ? baseAmount : 0,
+        paidAt:         paid ? paidAt : null,
+        paymentMethod:  method,
+        transactionId:  paid ? `TXN${dueDate.getFullYear()}${String(dueDate.getMonth()+1).padStart(2,"0")}${String(i).padStart(4,"0")}` : null,
+        remindersSent:  status === "overdue" ? (roll === 0 ? 3 : 1) : 0,
+        lastReminderAt: status === "overdue" ? daysAgo(roll === 0 ? 3 : 1) : null,
+        penaltyAppliedAt: roll === 0 ? new Date(dueDate.getTime() + 5 * 86_400_000) : null,
+      };
+    });
 
-  const mayBill = await MaintenanceBill.create({
-    society:        sunrise._id,
-    createdBy:      adminUser._id,
-    title:          "May 2025 — Monthly Maintenance",
-    description:    "Monthly maintenance for May 2025 covering security, housekeeping, lift AMC, generator fuel, common area electricity.",
-    billMonth:      "2025-05",
-    baseAmount:     3000,
-    dueDate:        daysAgo(1),   // overdue
-    penaltyEnabled: true,
-    penaltyAmount:  100,
-    penaltyAppliedAt: daysAgo(5),
-    targetMode:     "all",
-    isPublished:    true,
-    isClosed:       false,
-    payments:       mayPayments,
-  });
-  log.ok(`May 2025 bill — published, ${mayPayments.length} payments (paid/overdue/unpaid), due date past`);
+  // ── Sunrise Residency — 6 months of bills ────────────────────────────────
 
-  // Bill 2 — June 2025 Draft (TC-037 — invisible to residents)
+  // JAN 2025 — closed, mixed (oldest history)
   await MaintenanceBill.create({
-    society:     sunrise._id,
-    createdBy:   adminUser._id,
-    title:       "June 2025 — Monthly Maintenance (Draft)",
-    description: "Draft bill for June 2025. Pending committee review before publishing.",
-    billMonth:   "2025-06",
-    baseAmount:  3500,
-    dueDate:     daysFromNow(25),
-    penaltyEnabled: true,
-    penaltyAmount:  100,
-    targetMode:  "all",
-    isPublished: false,
-    isClosed:    false,
-    payments:    [],
+    society: sunrise._id, createdBy: adminUser._id,
+    title: "January 2025 — Monthly Maintenance",
+    description: "Jan 2025: security, housekeeping, lift AMC, generator fuel.",
+    billMonth: "2025-01", baseAmount: 2800,
+    dueDate: daysAgo(155), penaltyEnabled: true, penaltyAmount: 100,
+    penaltyAppliedAt: daysAgo(150), targetMode: "all",
+    isPublished: true, isClosed: true,
+    payments: buildPayments(residents, 2800, 100, daysAgo(155), daysAgo(145)),
   });
-  log.ok("June 2025 bill — DRAFT (residents cannot see)");
 
-  // Bill 3 — April 2025: Closed with all statuses (TC-040 defaulter list, TC-CJ-015)
+  // FEB 2025 — closed
+  await MaintenanceBill.create({
+    society: sunrise._id, createdBy: adminUser._id,
+    title: "February 2025 — Monthly Maintenance",
+    description: "Feb 2025: security, housekeeping, lift AMC, generator fuel.",
+    billMonth: "2025-02", baseAmount: 2800,
+    dueDate: daysAgo(124), penaltyEnabled: true, penaltyAmount: 100,
+    penaltyAppliedAt: daysAgo(119), targetMode: "all",
+    isPublished: true, isClosed: true,
+    payments: buildPayments(residents, 2800, 100, daysAgo(124), daysAgo(114)),
+  });
+
+  // MAR 2025 — closed, includes a partial payment (special case for resident[7])
+  const marPayments = buildPayments(residents, 2900, 100, daysAgo(93), daysAgo(83));
+  // Override resident[7] to partial payment
+  marPayments[7] = {
+    ...marPayments[7],
+    status:        "partial",
+    paidAmount:    1500,
+    paidAt:        daysAgo(85),
+    paymentMethod: "cash",
+    transactionId: null,
+    totalDue:      2900,
+    remindersSent: 2,
+    lastReminderAt: daysAgo(20),
+  };
+  await MaintenanceBill.create({
+    society: sunrise._id, createdBy: adminUser._id,
+    title: "March 2025 — Monthly Maintenance",
+    description: "Mar 2025: security, housekeeping, common area electricity, lift AMC.",
+    billMonth: "2025-03", baseAmount: 2900,
+    dueDate: daysAgo(93), penaltyEnabled: true, penaltyAmount: 100,
+    penaltyAppliedAt: daysAgo(88), targetMode: "all",
+    isPublished: true, isClosed: true,
+    payments: marPayments,
+  });
+
+  // APR 2025 — closed, some overdue (existing test case TC-040 defaulter list)
   const aprPayments = residents.map((res, i) => ({
     resident:      res._id,
     flat:          res.memberships[0]?.flat,
     wing:          res.memberships[0]?.wing,
-    amount:        2500, penalty: i % 3 === 0 ? 100 : 0, discount:0,
+    amount: 2500, penalty: i % 3 === 0 ? 100 : 0, discount: 0,
     totalDue:      i % 3 === 0 ? 2600 : 2500,
     status:        i < 5 ? "paid" : i === 5 ? "waived" : "overdue",
     paidAmount:    i < 5 ? 2500 : 0,
@@ -963,26 +1169,118 @@ async function seed() {
     paymentMethod: i < 5 ? "upi" : null,
     transactionId: i < 5 ? `TXN202504${String(i).padStart(4,"0")}` : null,
     remindersSent: i >= 6 ? 3 : 0,
-    lastReminderAt:i >= 6 ? daysAgo(26) : null,
+    lastReminderAt: i >= 6 ? daysAgo(26) : null,
   }));
-
   await MaintenanceBill.create({
-    society:        sunrise._id,
-    createdBy:      adminUser._id,
-    title:          "April 2025 — Monthly Maintenance",
-    description:    "April 2025 maintenance charges.",
-    billMonth:      "2025-04",
-    baseAmount:     2500,
-    dueDate:        daysAgo(30),
-    penaltyEnabled: true,
-    penaltyAmount:  100,
-    penaltyAppliedAt: daysAgo(28),
-    targetMode:     "all",
-    isPublished:    true,
-    isClosed:       true,
-    payments:       aprPayments,
+    society: sunrise._id, createdBy: adminUser._id,
+    title: "April 2025 — Monthly Maintenance",
+    description: "April 2025 maintenance charges.",
+    billMonth: "2025-04", baseAmount: 2500,
+    dueDate: daysAgo(30), penaltyEnabled: true, penaltyAmount: 100,
+    penaltyAppliedAt: daysAgo(28), targetMode: "all",
+    isPublished: true, isClosed: true, payments: aprPayments,
   });
   log.ok("April 2025 bill — closed, mixed statuses (for defaulter list test)");
+
+  // MAY 2025 — published, overdue, used in most existing TCs (TC-036 to TC-039)
+  const mayPayments = residents.map((res, i) => {
+    const roll = i % 5;
+    return {
+      resident:      res._id,
+      flat:          res.memberships[0]?.flat,
+      wing:          res.memberships[0]?.wing,
+      amount:        3000, penalty: roll === 0 ? 100 : 0, discount: 0,
+      totalDue:      roll === 0 ? 3100 : 3000,
+      status:        roll < 2 ? "paid" : roll === 2 ? "overdue" : "unpaid",
+      paidAmount:    roll < 2 ? 3000 : 0,
+      paidAt:        roll < 2 ? daysAgo(10) : null,
+      paymentMethod: roll < 2 ? ["upi","neft","cheque","cash"][i % 4] : null,
+      transactionId: roll < 2 ? `TXN202505${String(i).padStart(4,"0")}` : null,
+      remindersSent: roll === 2 ? 2 : 0,
+      lastReminderAt: roll === 2 ? daysAgo(1) : null,
+      penaltyAppliedAt: roll === 0 ? daysAgo(5) : null,
+    };
+  });
+  // Add Rohan Mehta (multi-society — TC-041)
+  mayPayments.push({
+    resident: rohanMehta._id, flat: "A-401", wing: "A",
+    amount: 3000, penalty: 0, discount: 0, totalDue: 3000,
+    status: "paid", paidAmount: 3000, paidAt: daysAgo(8),
+    paymentMethod: "upi", transactionId: "TXN20250599",
+    remindersSent: 0, lastReminderAt: null, penaltyAppliedAt: null,
+  });
+
+  const mayBill = await MaintenanceBill.create({
+    society: sunrise._id, createdBy: adminUser._id,
+    title: "May 2025 — Monthly Maintenance",
+    description: "Monthly maintenance for May 2025 covering security, housekeeping, lift AMC, generator fuel, common area electricity.",
+    billMonth: "2025-05", baseAmount: 3000,
+    dueDate: daysAgo(1),   // overdue — TC-CJ-015
+    penaltyEnabled: true, penaltyAmount: 100,
+    penaltyAppliedAt: daysAgo(5),
+    targetMode: "all", isPublished: true, isClosed: false,
+    payments: mayPayments,
+  });
+  log.ok(`May 2025 bill — published, ${mayPayments.length} payments (paid/overdue/unpaid), due date past`);
+
+  // JUN 2025 — DRAFT (invisible to residents — TC-037)
+  await MaintenanceBill.create({
+    society: sunrise._id, createdBy: adminUser._id,
+    title: "June 2025 — Monthly Maintenance (Draft)",
+    description: "Draft bill for June 2025. Pending committee review before publishing.",
+    billMonth: "2025-06", baseAmount: 3500,
+    dueDate: daysFromNow(25), penaltyEnabled: true, penaltyAmount: 100,
+    targetMode: "all", isPublished: false, isClosed: false, payments: [],
+  });
+  log.ok("June 2025 bill — DRAFT (residents cannot see)");
+
+  // ── Palm Springs — 3 months of bills (higher amounts, partial payments) ────
+
+  const buildPSPayments = (residentList, baseAmount, penaltyAmt, billDue, paidDate) =>
+    residentList.map((res, i) => {
+      // Pattern for Palm Springs: 4 paid, 3 overdue, 2 unpaid, 1 partial
+      const roll   = i % 10;
+      let status, paidAmount, penalty, method, txn, reminders;
+      if (roll < 4)       { status = "paid";    paidAmount = baseAmount; penalty = 0;          method = ["upi","neft","upi","cash"][roll]; txn = `PSTXN${String(i).padStart(4,"0")}`; reminders = 0; }
+      else if (roll < 6)  { status = "overdue"; paidAmount = 0;          penalty = penaltyAmt; method = null; txn = null; reminders = 2; }
+      else if (roll < 9)  { status = "unpaid";  paidAmount = 0;          penalty = 0;          method = null; txn = null; reminders = 1; }
+      else                { status = "partial"; paidAmount = Math.floor(baseAmount / 2); penalty = 0; method = "cash"; txn = null; reminders = 1; }
+      return {
+        resident: res._id, flat: res.memberships[0]?.flat, wing: res.memberships[0]?.wing,
+        amount: baseAmount, penalty, discount: 0, totalDue: baseAmount + penalty,
+        status, paidAmount: status === "paid" ? baseAmount : paidAmount,
+        paidAt:         status === "paid" ? paidDate : null,
+        paymentMethod:  method, transactionId: txn,
+        remindersSent:  reminders,
+        lastReminderAt: reminders > 0 ? daysAgo(2) : null,
+        penaltyAppliedAt: penalty > 0 ? new Date(billDue.getTime() + 3 * 86_400_000) : null,
+      };
+    });
+
+  // Palm Springs — Apr 2025
+  await MaintenanceBill.create({
+    society: palmSprings._id, createdBy: adminPS._id,
+    title: "April 2025 — Monthly Maintenance",
+    description: "Apr 2025: security, housekeeping, pool AMC, garden maintenance.",
+    billMonth: "2025-04", baseAmount: 4500,
+    dueDate: daysAgo(62), penaltyEnabled: true, penaltyAmount: 200,
+    penaltyAppliedAt: daysAgo(58), targetMode: "all",
+    isPublished: true, isClosed: true,
+    payments: buildPSPayments(psResidents, 4500, 200, daysAgo(62), daysAgo(55)),
+  });
+
+  // Palm Springs — May 2025 (published, still open)
+  await MaintenanceBill.create({
+    society: palmSprings._id, createdBy: adminPS._id,
+    title: "May 2025 — Monthly Maintenance",
+    description: "May 2025: security, housekeeping, pool AMC, gym equipment maintenance.",
+    billMonth: "2025-05", baseAmount: 4500,
+    dueDate: daysAgo(3), penaltyEnabled: true, penaltyAmount: 200,
+    penaltyAppliedAt: daysAgo(1), targetMode: "all",
+    isPublished: true, isClosed: false,
+    payments: buildPSPayments(psResidents, 4500, 200, daysAgo(3), daysAgo(5)),
+  });
+  log.ok("Palm Springs — Apr + May 2025 bills created (4.5k/flat, mix of paid/overdue/partial)");
 
   // ══════════════════════════════════════════════════════════════════════════
   //  AMENITIES — 3  (TC-042 to TC-045, TC-CJ-020/021)

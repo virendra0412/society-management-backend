@@ -98,6 +98,44 @@ class SuperAdminController {
     });
   }
 
+  /**
+   * PATCH /superadmin/societies/:id/discount
+   * Body: { pct?, flatRupees?, code?, validUntil?, note?, clear? }
+   * Sets or clears a coupon/discount for this society. Applied on their
+   * next Razorpay order, stacked on top of any custom pricing rate.
+   */
+  async setDiscount(req, res) {
+    const subscription = await superAdminService.setDiscount(
+      req.params.id,
+      req.body,
+      req.superAdmin
+    );
+    const message = req.body.clear
+      ? "Discount cleared."
+      : req.body.pct
+        ? `${req.body.pct}% discount set.`
+        : `₹${req.body.flatRupees} flat discount set.`;
+    return sendSuccess(res, { message, data: { subscription } });
+  }
+
+  /**
+   * PATCH /superadmin/societies/:id/schedule-downgrade
+   * Body: { toPlan: "starter"|"professional"|"free", note? }
+   * Schedules a plan downgrade to take effect at the society's next
+   * renewal date. Society keeps current plan until then.
+   */
+  async scheduleDowngrade(req, res) {
+    const subscription = await superAdminService.scheduleDowngrade(
+      req.params.id,
+      req.body,
+      req.superAdmin
+    );
+    return sendSuccess(res, {
+      message: `Downgrade to ${req.body.toPlan} scheduled for next renewal.`,
+      data: { subscription },
+    });
+  }
+
   async suspendSociety(req, res) {
     const result = await superAdminService.suspendSociety(req.params.id, req.body, req.superAdmin);
     return sendSuccess(res, { message: result.message });
