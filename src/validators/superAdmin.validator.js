@@ -53,11 +53,37 @@ const updateSubscription = Joi.object({
 // vs "negotiate a custom rate" — stay independently auditable.
 //   enabled=true  + monthlyRupees → next order uses this rate instead of the standard one
 //   enabled=false                → reverts to standard plan pricing (monthlyRupees optional, kept for history)
+//
+// monthlyRupees allows 0 — a fully-comped society (e.g. a friend's pilot,
+// an internal demo account). NOTE: a literal ₹0 Razorpay order is not
+// actually possible (Razorpay's own minimum is ₹1 / 100 paise), so
+// payment.service.js / config/pricing.js treat monthlyRupees: 0 as "this
+// society should never be asked to pay" rather than "charge them ₹0" —
+// see SASocietyPricing.jsx's guidance text for what this means in practice.
 const setCustomPricing = Joi.object({
   enabled:       Joi.boolean().required(),
-  monthlyRupees: Joi.number().min(1).max(1000000)
+  monthlyRupees: Joi.number().min(0).max(1000000)
                    .when("enabled", { is: true, then: Joi.required() }),
   note:          Joi.string().max(300).trim().allow("").optional(),
+});
+
+// Set (or clear) a coupon/discount for a society.
+// Applied automatically at the next Razorpay order — on top of any
+// customPricing rate already set.  Either pct OR flatRupees, not both.
+const setDiscount = Joi.object({
+  code:        Joi.string().max(40).uppercase().trim().optional().allow(""),
+  pct:         Joi.number().min(1).max(100).optional(),
+  flatRupees:  Joi.number().min(1).max(100000).optional(),
+  validUntil:  Joi.date().iso().min("now").optional().allow(null),
+  note:        Joi.string().max(200).trim().allow("").optional(),
+  clear:       Joi.boolean().optional(),   // true = remove existing discount
+}).or("pct", "flatRupees", "clear");
+
+// Schedule a plan downgrade to take effect at next renewal.
+// Never downgrades immediately — society keeps current plan until endDate.
+const scheduleDowngrade = Joi.object({
+  toPlan: Joi.string().valid("free", "starter", "professional").required(),
+  note:   Joi.string().max(300).trim().allow("").optional(),
 });
 
 const transferAdmin = Joi.object({
@@ -88,6 +114,8 @@ module.exports = {
   reviewApplication,
   updateSubscription,
   setCustomPricing,
+  setDiscount,
+  scheduleDowngrade,
   transferAdmin,
   reactivateSociety,
   suspendSociety,

@@ -6,89 +6,124 @@ const { sendSuccess }  = require("../utils/response");
 const { getAllPricing } = require("../config/pricing");
 
 class PaymentController {
-  /**
-   * GET /api/v1/payments/pricing
-   * Public-ish (but still requires login — no need to expose to the world).
-   * Frontend uses this to render the upgrade screen's price cards without
-   * hardcoding numbers on the client.
-   */
+  // ── Pricing ─────────────────────────────────────────────────────────────────
+
+  /** GET /api/v1/payments/pricing — standard price table, all plans × cycles */
   async getPricing(req, res) {
     return sendSuccess(res, { data: getAllPricing() });
   }
 
   /**
    * GET /api/v1/payments/my-pricing
-   * The EFFECTIVE price for the logged-in society — shows their custom
-   * negotiated rate (if a Super Admin set one) instead of the standard
-   * plan table. Use this on the upgrade screen instead of /pricing when
-   * you want to show "your price" rather than the generic price list.
+   * Effective prices for this society — returns custom negotiated rate when
+   * a Super Admin has set one, otherwise the standard table.
    */
   async getMyPricing(req, res) {
     const result = await paymentService.getMyEffectivePricing(req.societyId);
     return sendSuccess(res, { data: result });
   }
 
+  // ── Plan purchase / renewal ──────────────────────────────────────────────────
+
   /**
    * POST /api/v1/payments/subscription/create-order
-   * Body: { plan: "basic"|"premium", billingCycle: "monthly"|"quarterly"|"halfyearly"|"annual" }
+   * Body: { plan, billingCycle }
    */
   async createOrder(req, res) {
     const result = await paymentService.createSubscriptionOrder(
-      req.societyId,
-      req.user._id,
-      req.body
+      req.societyId, req.user._id, req.body
     );
-    return sendSuccess(res, {
-      statusCode: 201,
-      message: "Order created.",
-      data: result,
-    });
+    return sendSuccess(res, { statusCode: 201, message: "Order created.", data: result });
+  }
+
+  // ── Mid-cycle plan upgrade ───────────────────────────────────────────────────
+
+  /**
+   * GET /api/v1/payments/upgrade/preview?plan=professional&billingCycle=monthly
+   * Returns upgrade cost breakdown BEFORE creating an order:
+   *   { fromPlan, toPlan, daysLeft, creditRupees, chargeRupees, renewalDate }
+   * Show this to the admin so they see exactly what they'll pay.
+   */
+  async previewUpgrade(req, res) {
+    const { plan, billingCycle } = req.query;
+    const result = await paymentService.previewUpgrade(req.societyId, { plan, billingCycle });
+    return sendSuccess(res, { data: result });
   }
 
   /**
+   * POST /api/v1/payments/upgrade/create-order
+   * Body: { plan, billingCycle }
+   * Creates a mid-cycle upgrade order — charges prorated delta after crediting
+   * unused days from the current plan. On verify, plan switches immediately
+   * but the renewal date stays the same.
+   */
+  async createUpgradeOrder(req, res) {
+    const result = await paymentService.createUpgradeOrder(
+      req.societyId, req.user._id, req.body
+    );
+    return sendSuccess(res, { statusCode: 201, message: "Upgrade order created.", data: result });
+  }
+
+  // ── Module purchase (à la carte) ────────────────────────────────────────────
+
+  /**
+   * GET /api/v1/payments/modules/preview?modules=visitors,maintenance
+   * Returns prorated price breakdown per module BEFORE checkout.
+   *   { modules, breakdown, amountRupees, isProrated, renewalDate }
+   */
+  async previewModules(req, res) {
+    const raw        = req.query.modules || "";
+    const moduleKeys = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    const result     = await paymentService.previewModulesPricing(req.societyId, moduleKeys);
+    return sendSuccess(res, { data: result });
+  }
+
+  /**
+   * POST /api/v1/payments/modules/create-order
+   * Body: { modules: ["visitors", "maintenance", ...] }
+   * Payment success enables the selected module(s) immediately — replaces the
+   * old "Request Upgrade → wait for SA" flow entirely.
+   */
+  async createModulesOrder(req, res) {
+    const result = await paymentService.createModulesOrder(
+      req.societyId, req.user._id, req.body.modules
+    );
+    return sendSuccess(res, { statusCode: 201, message: "Order created.", data: result });
+  }
+
+  // ── Shared verify (plan + upgrade + modules) ─────────────────────────────────
+
+  /**
    * POST /api/v1/payments/subscription/verify
-   * Called by the mobile app's Razorpay Checkout success handler.
+   * Body: { razorpay_order_id, razorpay_payment_id, razorpay_signature }
+   * Single endpoint for all three purchase types — the Payment record's
+   * purchaseType field tells the service which effect to apply.
    */
   async verifyPayment(req, res) {
     const { alreadyProcessed, payment } = await paymentService.verifyAndApplyPayment(
-      req.societyId,
-      req.user._id,
-      req.body
+      req.societyId, req.user._id, req.body
     );
     return sendSuccess(res, {
-      message: alreadyProcessed
-        ? "Payment already confirmed."
-        : "Payment verified — subscription updated.",
+      message: alreadyProcessed ? "Payment already confirmed." : "Payment verified — subscription updated.",
       data: { paymentId: payment._id, status: payment.status },
     });
   }
 
-  /**
-   * GET /api/v1/payments/subscription/history
-   */
+  /** GET /api/v1/payments/subscription/history */
   async getHistory(req, res) {
     const { page, limit } = req.query;
     const result = await paymentService.getPaymentHistory(req.societyId, {
-      page: Number(page) || 1,
-      limit: Number(limit) || 20,
+      page: Number(page) || 1, limit: Number(limit) || 20,
     });
     return sendSuccess(res, { data: result });
   }
 
   /**
    * POST /api/v1/payments/webhook
-   * Server-to-server call from Razorpay. NOT behind `protect` middleware —
-   * authenticated via HMAC signature instead (see razorpayWebhookAuth in
-   * middlewares/razorpayWebhook.middleware.js, applied before this route
-   * in app.js using express.raw()).
-   *
-   * Always returns 200 quickly — Razorpay retries on non-2xx, and we've
-   * already validated the signature in the raw-body middleware before this
-   * handler runs, so by the time we're here the payload is trusted.
+   * Server-to-server from Razorpay. Mounted with express.raw() in app.js.
+   * razorpayWebhookAuth verifies + parses the body before this handler runs.
    */
   async webhook(req, res) {
-    // req.body is the parsed JSON (see razorpayWebhook.middleware.js — it
-    // verifies against the raw Buffer, then attaches the parsed object here).
     await paymentService.handleWebhookEvent(req.body);
     return res.status(200).json({ received: true });
   }

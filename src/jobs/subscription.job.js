@@ -171,7 +171,7 @@ const markExpiredSubscriptions = async () => {
   }
 
   // Handle expired paid plan subscriptions → mark as "expired" and gate paid modules
-  const paidFilter = { status: "active", plan: { $in: ["basic", "premium"] }, endDate: { $lt: now } };
+  const paidFilter = { status: "active", plan: { $in: ["starter", "professional", "enterprise"] }, endDate: { $lt: now } };
   const paidSubsToExpire = await Subscription.find(paidFilter, "society").lean();
   const paidSocietyIds = Array.from(new Set(paidSubsToExpire.map(s => s.society).filter(Boolean)));
 
@@ -217,13 +217,87 @@ const markExpiredSubscriptions = async () => {
   }
 };
 
-// ─── Main runner ──────────────────────────────────────────────────────────────
+// ─── Task C: Apply scheduled downgrades at renewal date ──────────────────────
+// When a SA schedules a downgrade (pendingPlan set), apply it once the
+// society's endDate has passed. This runs AFTER markExpiredSubscriptions
+// so the plan switch takes effect cleanly at the boundary.
+
+const applyPendingDowngrades = async () => {
+  const now     = new Date();
+  const Society = require("../models/society.model");
+
+  // Find subscriptions where pendingPlan is set and pendingPlanAt has arrived
+  const pending = await Subscription.find({
+    status:        "active",
+    pendingPlan:   { $ne: null },
+    pendingPlanAt: { $lte: now },
+  }).lean();
+
+  if (pending.length === 0) return;
+
+  const FREE_MODULE_STATE = {
+    notices: true, polls: true, contacts: true,
+    issues: false, visitors: false, maintenance: false,
+    amenities: false, events: false, parking: false,
+    community: false, analytics: false, multilang: false,
+  };
+
+  for (const sub of pending) {
+    try {
+      const toPlan = sub.pendingPlan;
+
+      await Subscription.updateOne(
+        { _id: sub._id },
+        {
+          $set: {
+            plan:          toPlan,
+            pendingPlan:   null,
+            pendingPlanAt: null,
+            // free plan has no expiry; others keep current endDate as new start
+            ...(toPlan === "free" ? { endDate: null } : {}),
+          },
+          $push: {
+            history: {
+              action:      "downgrade_applied",
+              fromPlan:    sub.plan,
+              toPlan,
+              fromStatus:  "active",
+              toStatus:    "active",
+              note:        `Scheduled downgrade from ${sub.plan} to ${toPlan} applied at renewal by daily job.`,
+              performedAt: now,
+            },
+          },
+        }
+      );
+
+      // Restrict modules to free tier for starter/free downgrades
+      if (toPlan === "free" || toPlan === "starter") {
+        await Society.updateOne(
+          { _id: sub.society },
+          { $set: { enabledModules: FREE_MODULE_STATE } }
+        );
+      }
+
+      logger.info(`[Subscription Job] Downgrade applied: ${sub.plan} → ${toPlan}`, {
+        societyId: sub.society,
+      });
+    } catch (err) {
+      logger.error("[Subscription Job] Failed to apply pending downgrade", {
+        subscriptionId: sub._id,
+        error: err.message,
+      });
+    }
+  }
+
+  logger.info(`[Subscription Job] Applied ${pending.length} pending downgrade(s).`);
+};
 
 const runSubscriptionCheck = async () => {
   logger.info("[Subscription Job] Starting daily subscription check...");
   try {
     await warnExpiringSubscriptions();
     await markExpiredSubscriptions();
+    await applyPendingDowngrades();
     logger.info("[Subscription Job] Daily subscription check complete.");
   } catch (err) {
     logger.error("[Subscription Job] Uncaught error during run", { error: err.message, stack: err.stack });

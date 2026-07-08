@@ -1,55 +1,56 @@
 /**
  * models/payment.model.js
  *
- * One document per Razorpay order created. This is the audit trail for
- * every subscription payment attempt — created, paid, failed, or abandoned.
+ * One document per Razorpay order created.
  *
- * Lifecycle:
- *   created   → order created, checkout not yet opened/completed by user
- *   attempted → Razorpay sent a webhook saying payment was attempted (optional)
- *   paid      → signature verified (via /verify or webhook) and subscription updated
- *   failed    → payment.failed webhook received, or verify signature mismatch
+ * purchaseType:
+ *   "plan"    — buying/renewing a fixed plan (starter/professional/enterprise)
+ *   "modules" — buying a hand-picked set of paid modules directly (à la carte)
+ *   "upgrade" — mid-cycle plan upgrade with credit applied (chargesCredit recorded)
  *
- * Idempotency: both the /verify endpoint and the webhook handler can mark a
- * Payment as "paid" — whichever fires first wins. Both paths check
- * `status === "paid"` before re-applying the subscription update, so a
- * duplicate webhook delivery (Razorpay retries webhooks) never double-extends
- * a subscription.
+ * Idempotent: both /verify and the webhook can mark a Payment as "paid" —
+ * whichever fires first wins. The second path checks status === "paid" and skips.
  */
 const mongoose = require("mongoose");
 
 const PAYMENT_STATUSES = Object.freeze(["created", "attempted", "paid", "failed"]);
-const PAYABLE_PLANS    = Object.freeze(["basic", "premium"]);
+const PAYABLE_PLANS    = Object.freeze(["starter", "professional", "enterprise"]);
 const BILLING_CYCLES   = Object.freeze(["monthly", "quarterly", "halfyearly", "annual"]);
+const PURCHASE_TYPES   = Object.freeze(["plan", "modules", "upgrade"]);
 
 const paymentSchema = new mongoose.Schema(
   {
-    society: {
-      type:     mongoose.Schema.Types.ObjectId,
-      ref:      "Society",
-      required: true,
-      index:    true,
-    },
-    // The society-admin user who initiated the payment (for audit/notification)
-    initiatedBy: {
-      type:     mongoose.Schema.Types.ObjectId,
-      ref:      "User",
-      required: true,
-    },
+    society:     { type: mongoose.Schema.Types.ObjectId, ref: "Society", required: true, index: true },
+    initiatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User",   required: true },
 
-    // ── What's being purchased ───────────────────────────────────────────────
-    plan:         { type: String, enum: PAYABLE_PLANS,  required: true },
-    billingCycle: { type: String, enum: BILLING_CYCLES, required: true },
-    months:       { type: Number, required: true }, // duration this payment extends the subscription by
+    // ── What's being purchased ────────────────────────────────────────────────
+    purchaseType: { type: String, enum: PURCHASE_TYPES, default: "plan", required: true },
+
+    // Plan / upgrade fields
+    plan:         { type: String, enum: PAYABLE_PLANS,  default: null },
+    billingCycle: { type: String, enum: BILLING_CYCLES, default: null },
+    months:       { type: Number, default: null },
+
+    // Upgrade-specific: credit applied from unused portion of previous plan
+    previousPlan:    { type: String, default: null },
+    creditApplied:   { type: Number, default: 0 },  // rupees credited from old plan
+
+    // Module-purchase fields
+    modules: { type: [String], default: undefined },
+
+    // ── Proration info (stored for receipt display) ───────────────────────────
+    isProrated:   { type: Boolean, default: false },
+    proratedDays: { type: Number, default: null },   // daysLeft at time of purchase
 
     // ── Money ─────────────────────────────────────────────────────────────────
-    amount:   { type: Number, required: true }, // rupees (not paise) — for display/reporting
-    currency: { type: String, default: "INR" },
-    // True when this order was priced using the society's Subscription.customPricing
-    // override rather than config/pricing.js's standard plan rate. Kept on the
-    // payment record (not just the subscription) so historical reports can show
-    // exactly what rate was charged at the time, even if customPricing is later changed.
+    amount:          { type: Number, required: true },  // rupees charged (after discount + credit)
+    fullAmount:      { type: Number, default: null },   // rupees before discount/credit (for display)
+    discountApplied: { type: Number, default: 0 },      // rupees saved by discount/coupon
+    currency:        { type: String, default: "INR" },
     isCustomPricing: { type: Boolean, default: false },
+
+    // ── Coupon used (snapshot at purchase time) ───────────────────────────────
+    couponCode:    { type: String, default: null },
 
     // ── Razorpay identifiers ─────────────────────────────────────────────────
     razorpayOrderId:   { type: String, required: true, unique: true, index: true },
@@ -57,16 +58,10 @@ const paymentSchema = new mongoose.Schema(
     razorpaySignature: { type: String, default: null },
 
     // ── Status ────────────────────────────────────────────────────────────────
-    status: {
-      type:    String,
-      enum:    PAYMENT_STATUSES,
-      default: "created",
-      index:   true,
-    },
+    status:        { type: String, enum: PAYMENT_STATUSES, default: "created", index: true },
     failureReason: { type: String, default: null },
 
-    // Raw webhook payload kept for debugging/dispute resolution — Razorpay
-    // support will ask for this if a payment is ever contested.
+    // Raw webhook payloads for debugging / dispute resolution
     webhookEvents: [
       {
         event:      { type: String },
@@ -83,4 +78,4 @@ const paymentSchema = new mongoose.Schema(
 paymentSchema.index({ society: 1, createdAt: -1 });
 
 const Payment = mongoose.model("Payment", paymentSchema);
-module.exports = { Payment, PAYMENT_STATUSES, PAYABLE_PLANS, BILLING_CYCLES };
+module.exports = { Payment, PAYMENT_STATUSES, PAYABLE_PLANS, BILLING_CYCLES, PURCHASE_TYPES };

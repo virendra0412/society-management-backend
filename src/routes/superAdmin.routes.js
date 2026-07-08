@@ -27,6 +27,8 @@
  *   GET   /superadmin/societies/:id             single + subscription detail
  *   PATCH /superadmin/societies/:id/subscription  change plan / status / dates
  *   PATCH /superadmin/societies/:id/custom-pricing  set/clear a negotiated per-society rate
+ *   PATCH /superadmin/societies/:id/discount       set/clear a coupon or % / flat discount
+ *   PATCH /superadmin/societies/:id/schedule-downgrade  queue plan downgrade for next renewal
  *   PATCH /superadmin/societies/:id/suspend
  *   PATCH /superadmin/societies/:id/reactivate
  *   PATCH /superadmin/societies/:id/transfer-admin
@@ -87,6 +89,16 @@ router.patch("/societies/:id/custom-pricing",
   protectSuperAdmin,
   validate(v.setCustomPricing),
   ctrl.setCustomPricing
+);
+router.patch("/societies/:id/discount",
+  protectSuperAdmin,
+  validate(v.setDiscount),
+  ctrl.setDiscount
+);
+router.patch("/societies/:id/schedule-downgrade",
+  protectSuperAdmin,
+  validate(v.scheduleDowngrade),
+  ctrl.scheduleDowngrade
 );
 router.patch("/societies/:id/suspend",
   protectSuperAdmin,

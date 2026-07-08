@@ -300,10 +300,16 @@ class MaintenanceService {
 
   /**
    * Resident: get all their own payment records across all bills.
+   *
+   * BUGFIX: previously called _getSocietyId(residentUser) which reads
+   * user.society (= user.activeSocietyId virtual). If activeSocietyId is not
+   * populated on the user doc, this returns null → the aggregate finds nothing.
+   *
+   * The reliable societyId is always req.societyId (decoded from the JWT by
+   * auth middleware). The controller now passes it through explicitly.
    */
-  async getMyPayments(residentUser, query) {
+  async getMyPayments(residentUser, societyId, query) {
     const { page, limit, skip } = parsePagination(query);
-    const societyId = this._getSocietyId(residentUser);
     const records = await maintenanceRepository.findAllPaymentsByResident(
       societyId,
       residentUser._id,

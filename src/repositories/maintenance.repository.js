@@ -107,54 +107,86 @@ class MaintenanceRepository {
   }
 
   async findDefaultersBySociety(societyId, { skip, limit }) {
+    // BUGFIX: societyId arrives as a string from the JWT middleware.
+    // Aggregation $match on an ObjectId field requires an ObjectId — a string
+    // never matches, so the pipeline returns zero results without this cast.
+    const sid = new mongoose.Types.ObjectId(societyId);
+
     return MaintenanceBill.aggregate([
-      { $match: { society: societyId, isPublished: true, "payments.status": { $in: ["unpaid", "overdue"] } } },
+      {
+        $match: {
+          society:            sid,
+          isPublished:        true,
+          "payments.status":  { $in: ["unpaid", "overdue"] },
+        },
+      },
       { $unwind: "$payments" },
       { $match: { "payments.status": { $in: ["unpaid", "overdue"] } } },
       {
         $lookup: {
-          from: "users",
-          localField: "payments.resident",
+          from:         "users",
+          localField:   "payments.resident",
           foreignField: "_id",
-          as: "resident",
+          as:           "resident",
         },
       },
       { $unwind: { path: "$resident", preserveNullAndEmptyArrays: true } },
       {
         $group: {
-          _id: "$payments.resident",
-          flat: { $first: "$payments.flat" },
-          wing: { $first: "$payments.wing" },
+          _id:      "$payments.resident",
+          flat:     { $first: "$payments.flat" },
+          wing:     { $first: "$payments.wing" },
           resident: { $first: "$resident" },
+          // Sum all outstanding amounts across every defaulted bill
+          totalOutstanding: {
+            $sum: {
+              $subtract: [
+                { $ifNull: ["$payments.totalDue", "$payments.amount"] },
+                { $ifNull: ["$payments.paidAmount", 0] },
+              ],
+            },
+          },
           records: {
             $push: {
-              _id: "$payments._id",
-              status: "$payments.status",
-              amount: "$payments.amount",
-              penalty: "$payments.penalty",
+              _id:      "$payments._id",
+              status:   "$payments.status",
+              amount:   "$payments.amount",
+              penalty:  "$payments.penalty",
               discount: "$payments.discount",
-              totalDue: "$payments.totalDue",
+              totalDue: {
+                $ifNull: [
+                  "$payments.totalDue",
+                  { $subtract: [
+                      { $add: ["$payments.amount", { $ifNull: ["$payments.penalty", 0] }] },
+                      { $ifNull: ["$payments.discount", 0] },
+                  ]},
+                ],
+              },
+              remindersSent:  "$payments.remindersSent",
+              lastReminderAt: "$payments.lastReminderAt",
               bill: {
-                _id: "$_id",
-                title: "$title",
+                _id:       "$_id",
+                title:     "$title",
                 billMonth: "$billMonth",
-                dueDate: "$dueDate",
+                dueDate:   "$dueDate",
               },
             },
           },
         },
       },
-      { $sort: { "flat": 1 } },
+      { $sort: { flat: 1 } },
       { $skip: skip },
       { $limit: limit },
       {
         $project: {
-          _id: 1,
-          flat: 1,
-          wing: 1,
+          _id:              1,
+          flat:             1,
+          wing:             1,
+          totalOutstanding: 1,
           resident: {
-            _id: "$resident._id",
-            name: "$resident.name",
+            _id:   "$resident._id",
+            name:  "$resident.name",
+            phone: "$resident.phone",
           },
           records: 1,
         },
