@@ -23,11 +23,17 @@ class PaymentSettingsService {
 
   // ── Get current payment settings ────────────────────────────────────────────
 
-  async getSettings(adminUser) {
-    const societyId = this._getSocietyId(adminUser);
-    const society = await Society.findById(societyId, "paymentSettings name").lean();
+  async getSettings(user) {
+    const societyId = this._getSocietyId(user);
+    const society = await Society
+      .findById(societyId, "paymentSettings paymentVerificationEnabled name")
+      .lean();
     if (!society) throw AppError.notFound("Society not found.");
-    return society.paymentSettings || {};
+    return {
+      paymentSettings:          society.paymentSettings || {},
+      // Default true so societies created before this field existed behave correctly
+      paymentVerificationEnabled: society.paymentVerificationEnabled !== false,
+    };
   }
 
   // ── Update text-based settings ──────────────────────────────────────────────

@@ -5,11 +5,15 @@ const { protect, requireSociety } = require("../middlewares/auth.middleware");
 const { requireRole, requirePermission } = require("../middlewares/role.middleware");
 const { validate } = require("../middlewares/validate.middleware");
 const { maintenance: maintenanceValidator } = require("../validators/phase2.validator");
-const paymentSettingsRouter = require("./paymentSettings.routes");
+const paymentSettingsRouter  = require("./paymentSettings.routes");
+const reportRouter           = require("./maintenanceReport.routes");
 const { requireMaintenancePaymentVerification } = require("../middlewares/module.middleware");
 const Joi = require("joi");
 
 router.use(protect, requireSociety);
+
+// ── Reports (PDF / CSV / HTML — no gate beyond maintenance module itself) ─────
+router.use("/reports", reportRouter);
 
 // ── Payment settings (admin configures once; residents read when paying) ──────
 router.use("/payment-settings", paymentSettingsRouter);
@@ -42,6 +46,15 @@ router.get(
 
 // ── Both: List and get bills ──────────────────────────────────────────────────
 router.get("/", maintenanceController.getAllBills);
+
+// ── MUST be before /:id — otherwise "pending-verifications" is caught as a bill ID ──
+router.get(
+  "/pending-verifications",
+  requirePermission("maintenance", "write"),
+  requireMaintenancePaymentVerification,
+  maintenanceController.getPendingVerifications
+);
+
 router.get("/:id", maintenanceController.getBillById);
 
 // ── Admin / Treasurer: Manage bills ──────────────────────────────────────────
@@ -110,14 +123,6 @@ router.patch(
 // requireMaintenancePaymentVerification, so SA can pause just this flow
 // (via society.paymentVerificationEnabled) without touching bill
 // creation/viewing above, which stay behind requireModule("maintenance") only.
-
-// Admin: pending-verification queue
-router.get(
-  "/pending-verifications",
-  requirePermission("maintenance", "write"),
-  requireMaintenancePaymentVerification,
-  maintenanceController.getPendingVerifications
-);
 
 // Resident: submit proof of offline payment (cash/bank transfer/UPI QR/cheque)
 router.post(

@@ -22,9 +22,13 @@ class PaymentSettingsController {
 
   // ── GET — admin or resident reads current settings ─────────────────────────
   // Residents need this to see where to transfer and what reference to quote.
+  // Also returns paymentVerificationEnabled so mobile can gate the UI correctly.
   async getSettings(req, res) {
-    const settings = await paymentSettingsService.getSettings(req.user);
-    return sendSuccess(res, { data: { paymentSettings: settings } });
+    const { paymentSettings, paymentVerificationEnabled } =
+      await paymentSettingsService.getSettings(req.user);
+    return sendSuccess(res, {
+      data: { paymentSettings, paymentVerificationEnabled },
+    });
   }
 
   // ── PATCH — admin updates text-based settings ──────────────────────────────

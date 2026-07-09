@@ -1,4 +1,20 @@
 const { extractBearerToken, verifyAccessToken } = require("../utils/token");
+
+// ─── Token extraction ─────────────────────────────────────────────────────────
+// Report endpoints are opened directly in the device browser (expo-web-browser),
+// which cannot set Authorization headers. We allow the JWT as a ?token= query
+// param ONLY for GET requests to /maintenance/reports/* so report downloads work.
+const _extractToken = (req) => {
+  // Primary: Authorization header (all API calls)
+  const fromHeader = extractBearerToken(req.headers.authorization);
+  if (fromHeader) return fromHeader;
+
+  // Secondary: ?token= query param — report browser-view only
+  if (req.method === "GET" && req.query.token) {
+    return req.query.token;
+  }
+  return null;
+};
 const userRepository = require("../repositories/user.repository");
 const AppError = require("../utils/AppError");
 const { Society } = require("../models/society.model");
@@ -11,7 +27,7 @@ const { Society } = require("../models/society.model");
  * NOT derived from user.society — this is critical for multi-society support.
  */
 const protect = async (req, res, next) => {
-  const token = extractBearerToken(req.headers.authorization);
+  const token = _extractToken(req);
   if (!token) {
     throw AppError.unauthorized("Authentication required. Please log in.");
   }
