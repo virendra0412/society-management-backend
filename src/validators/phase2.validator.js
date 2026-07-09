@@ -158,6 +158,27 @@ const maintenance = {
     receiptNote: Joi.string().max(300).trim().optional().allow(""),
   }),
 
+  // Resident: submit proof of an offline payment (cash/bank transfer/UPI/cheque)
+  submitPaymentProof: Joi.object({
+    submittedMethod: Joi.string()
+      .valid("cash", "bank_transfer", "upi_qr", "cheque")
+      .required()
+      .messages({ "any.required": "Please select how you paid" }),
+    submittedAmount: Joi.number().min(1).optional().messages({
+      "number.min": "Amount must be at least ₹1",
+    }),
+    utrNumber: Joi.string().max(50).trim().required().messages({
+      "any.required": "Please enter the UTR / reference / cheque number",
+      "string.empty":  "Please enter the UTR / reference / cheque number",
+    }),
+    proofNote: Joi.string().max(300).trim().optional().allow(""),
+  }),
+
+  // Admin: reject a submitted proof
+  rejectPayment: Joi.object({
+    reason: Joi.string().max(300).trim().optional().allow(""),
+  }),
+
   applyDiscount: Joi.object({
     discount: Joi.number().min(0).required().messages({
       "any.required": "discount amount is required",

@@ -5,8 +5,26 @@ const { protect, requireSociety } = require("../middlewares/auth.middleware");
 const { requireRole, requirePermission } = require("../middlewares/role.middleware");
 const { validate } = require("../middlewares/validate.middleware");
 const { maintenance: maintenanceValidator } = require("../validators/phase2.validator");
+const paymentSettingsRouter = require("./paymentSettings.routes");
+const { requireMaintenancePaymentVerification } = require("../middlewares/module.middleware");
+const Joi = require("joi");
 
 router.use(protect, requireSociety);
+
+// ── Payment settings (admin configures once; residents read when paying) ──────
+router.use("/payment-settings", paymentSettingsRouter);
+
+// ── Payment-verification on/off switch ─────────────────────────────────────────
+// Read state via GET /modules/status (already returns paymentVerificationEnabled
+// for any member — see module.controller.js). Only admin/treasurer of THIS
+// society can change it here — scoped via req.user's own society, never by an
+// :id param, so an admin can only ever affect their own society, not anyone else's.
+router.patch(
+  "/verification-status",
+  requirePermission("maintenance", "write"),
+  validate(Joi.object({ enabled: Joi.boolean().required() })),
+  maintenanceController.setPaymentVerificationStatus
+);
 
 // ── Resident: My payments ─────────────────────────────────────────────────────
 router.get(
@@ -85,6 +103,46 @@ router.patch(
   requirePermission("maintenance", "write"),
   validate(maintenanceValidator.applyDiscount),
   maintenanceController.applyDiscount
+);
+
+// ── Manual proof workflow ─────────────────────────────────────────────────────
+// NOTE: every route in this block additionally carries
+// requireMaintenancePaymentVerification, so SA can pause just this flow
+// (via society.paymentVerificationEnabled) without touching bill
+// creation/viewing above, which stay behind requireModule("maintenance") only.
+
+// Admin: pending-verification queue
+router.get(
+  "/pending-verifications",
+  requirePermission("maintenance", "write"),
+  requireMaintenancePaymentVerification,
+  maintenanceController.getPendingVerifications
+);
+
+// Resident: submit proof of offline payment (cash/bank transfer/UPI QR/cheque)
+router.post(
+  "/:billId/payments/:paymentId/submit-proof",
+  requireRole("resident"),
+  requireMaintenancePaymentVerification,
+  validate(maintenanceValidator.submitPaymentProof),
+  maintenanceController.submitPaymentProof
+);
+
+// Admin: verify a submitted proof → marks paid
+router.patch(
+  "/:billId/payments/:paymentId/verify",
+  requirePermission("maintenance", "write"),
+  requireMaintenancePaymentVerification,
+  maintenanceController.verifyPayment
+);
+
+// Admin: reject a submitted proof → back to unpaid, resident can resubmit
+router.patch(
+  "/:billId/payments/:paymentId/reject",
+  requirePermission("maintenance", "write"),
+  requireMaintenancePaymentVerification,
+  validate(maintenanceValidator.rejectPayment),
+  maintenanceController.rejectPayment
 );
 
 module.exports = router;

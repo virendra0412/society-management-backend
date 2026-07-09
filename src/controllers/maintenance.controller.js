@@ -180,6 +180,83 @@ class MaintenanceController {
       data: { payments: records },
     });
   }
+
+  // ── Resident: Submit proof of an offline payment ──────────────────────────
+  async submitPaymentProof(req, res) {
+    const bill = await maintenanceService.submitPaymentProof(
+      req.params.billId,
+      req.params.paymentId,
+      req.body,
+      req.user
+    );
+
+    await audit(req, "maintenance.payment_proof_submitted", "MaintenanceBill", req.params.billId, {
+      paymentId: req.params.paymentId,
+      method:    req.body.submittedMethod,
+    });
+
+    return sendSuccess(res, {
+      message: "Payment proof submitted. The admin will verify it shortly.",
+      data: { bill },
+    });
+  }
+
+  // ── Admin: Verification queue ──────────────────────────────────────────────
+  async getPendingVerifications(req, res) {
+    const pending = await maintenanceService.getPendingVerifications(req.societyId, req.query);
+    return sendSuccess(res, { data: { pending } });
+  }
+
+  // ── Admin: Verify a submitted proof ────────────────────────────────────────
+  async verifyPayment(req, res) {
+    const bill = await maintenanceService.verifyPayment(req.params.billId, req.params.paymentId, req.user);
+
+    await audit(req, "maintenance.payment_verified", "MaintenanceBill", req.params.billId, {
+      paymentId: req.params.paymentId,
+      verifiedBy: req.user._id,
+    });
+
+    return sendSuccess(res, {
+      message: "Payment verified and marked as paid.",
+      data: { bill },
+    });
+  }
+
+  // ── Admin: Reject a submitted proof ────────────────────────────────────────
+  async rejectPayment(req, res) {
+    const bill = await maintenanceService.rejectPayment(
+      req.params.billId,
+      req.params.paymentId,
+      req.body.reason,
+      req.user
+    );
+
+    await audit(req, "maintenance.payment_rejected", "MaintenanceBill", req.params.billId, {
+      paymentId: req.params.paymentId,
+      reason:    req.body.reason,
+    });
+
+    return sendSuccess(res, {
+      message: "Payment submission rejected. Resident has been notified.",
+      data: { bill },
+    });
+  }
+
+  // ── Admin: toggle verification on/off for their own society ────────────────
+  async setPaymentVerificationStatus(req, res) {
+    const status = await maintenanceService.setPaymentVerificationStatus(req.body.enabled, req.user);
+
+    await audit(req, "maintenance.payment_verification_toggled", "Society", req.societyId, {
+      enabled: req.body.enabled,
+    });
+
+    return sendSuccess(res, {
+      message: status.paymentVerificationEnabled
+        ? "Payment verification enabled. Residents can now submit and you can verify payment proofs."
+        : "Payment verification disabled. Residents won't see proof submission; you won't see the verification queue.",
+      data: status,
+    });
+  }
 }
 
 module.exports = new MaintenanceController();

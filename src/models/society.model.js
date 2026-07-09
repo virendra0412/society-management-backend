@@ -90,6 +90,50 @@ const moduleChargesSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// ─── Payment Settings sub-schema (manual + gateway collection methods) ────────
+// Lets each society choose which maintenance payment methods it accepts.
+// Razorpay is intentionally left out of this sub-schema — that integration
+// already lives in the separate subscription/payment module; this covers the
+// "offline" methods most Indian societies actually use today.
+const PAYMENT_METHOD_KEYS = Object.freeze(["cash", "bank_transfer", "upi_qr", "cheque"]);
+
+const bankTransferDetailsSchema = new mongoose.Schema(
+  {
+    accountHolderName: { type: String, trim: true, maxlength: 150, default: null },
+    accountNumber:     { type: String, trim: true, maxlength: 30,  default: null },
+    ifscCode:          { type: String, trim: true, uppercase: true, maxlength: 15, default: null },
+    bankName:          { type: String, trim: true, maxlength: 150, default: null },
+    branchName:        { type: String, trim: true, maxlength: 150, default: null },
+  },
+  { _id: false }
+);
+
+const upiQrDetailsSchema = new mongoose.Schema(
+  {
+    upiId:           { type: String, trim: true, maxlength: 100, default: null }, // e.g. abcgreens@oksbi
+    qrImageUrl:      { type: String, trim: true, default: null },
+    qrImagePublicId: { type: String, trim: true, default: null }, // Cloudinary public_id, for cleanup on replace
+  },
+  { _id: false }
+);
+
+const paymentSettingsSchema = new mongoose.Schema(
+  {
+    // Which methods residents are offered when they open a bill to pay.
+    // Admin toggles these on/off; UI should always keep at least one enabled.
+    acceptedMethods: {
+      type: [String],
+      enum: PAYMENT_METHOD_KEYS,
+      default: ["cash", "bank_transfer"],
+    },
+    bankTransfer:       { type: bankTransferDetailsSchema, default: () => ({}) },
+    upiQr:              { type: upiQrDetailsSchema,        default: () => ({}) },
+    chequeInstructions: { type: String, trim: true, maxlength: 500, default: null },
+    cashInstructions:   { type: String, trim: true, maxlength: 500, default: null },
+  },
+  { _id: false }
+);
+
 // ─── Society Schema ───────────────────────────────────────────────────────────
 const societySchema = new mongoose.Schema(
   {
@@ -128,6 +172,12 @@ const societySchema = new mongoose.Schema(
     totalUnits: { type: Number, default: 0 },
     isActive:   { type: Boolean, default: true },
 
+    // ── Maintenance payment collection settings ──────────────────────────────
+    paymentSettings: {
+      type:    paymentSettingsSchema,
+      default: () => ({}),
+    },
+
     // ── Super Admin fields ────────────────────────────────────────────────────
     approvalStatus: {
       type:    String,
@@ -156,6 +206,18 @@ const societySchema = new mongoose.Schema(
     moduleCharges: {
       type:    moduleChargesSchema,
       default: () => ({}),
+    },
+
+    // ── Maintenance payment-verification sub-flag ────────────────────────────
+    // Independent of enabledModules.maintenance. When maintenance is enabled,
+    // residents/admins can always create, publish, and view bills. This flag
+    // additionally gates only the payment-verification flow (submit proof,
+    // admin verify/reject, pending-verifications queue) so SA can pause
+    // verification without hiding bills. Meaningless while maintenance itself
+    // is disabled, since the whole /maintenance router is blocked first.
+    paymentVerificationEnabled: {
+      type:    Boolean,
+      default: true,
     },
     // Upgrade requests submitted by society admin, pending SA review
     upgradeRequests: [
@@ -201,4 +263,7 @@ societySchema.pre("validate", function (next) {
 });
 
 const Society = mongoose.model("Society", societySchema);
-module.exports = { Society, MODULE_KEYS, FREE_MODULES, PAID_MODULES, DEFAULT_MODULE_PRICES, MODULE_BUNDLES };
+module.exports = {
+  Society, MODULE_KEYS, FREE_MODULES, PAID_MODULES, DEFAULT_MODULE_PRICES, MODULE_BUNDLES,
+  PAYMENT_METHOD_KEYS,
+};

@@ -263,6 +263,85 @@ class MaintenanceRepository {
       }
     ).exec();
   }
+
+  // ─── Manual payment proof / admin verification queue ──────────────────────
+
+  /**
+   * Resident submits payment proof (method + UTR/reference) for their own record.
+   */
+  async submitPaymentProof(billId, paymentId, proof) {
+    return MaintenanceBill.findOneAndUpdate(
+      { _id: billId, "payments._id": paymentId },
+      {
+        $set: {
+          "payments.$.verificationStatus": "pending_verification",
+          "payments.$.submittedMethod":    proof.submittedMethod,
+          "payments.$.submittedAmount":    proof.submittedAmount,
+          "payments.$.utrNumber":          proof.utrNumber,
+          "payments.$.proofNote":          proof.proofNote || null,
+          "payments.$.submittedAt":        new Date(),
+          // Clear any previous rejection once a fresh proof comes in
+          "payments.$.rejectionReason":    null,
+        },
+      },
+      { new: true, runValidators: true }
+    ).exec();
+  }
+
+  /**
+   * Admin rejects a submitted proof → back to unpaid, resident can resubmit.
+   */
+  async rejectPaymentProof(billId, paymentId, reason) {
+    return MaintenanceBill.findOneAndUpdate(
+      { _id: billId, "payments._id": paymentId },
+      {
+        $set: {
+          "payments.$.verificationStatus": "rejected",
+          "payments.$.rejectionReason":    reason || null,
+        },
+      },
+      { new: true, runValidators: true }
+    ).exec();
+  }
+
+  /**
+   * Admin: list all payment records across a society's bills awaiting review.
+   */
+  async findPendingVerifications(societyId, { skip, limit }) {
+    const sid = new mongoose.Types.ObjectId(societyId);
+    const pipeline = [
+      { $match: { society: sid, "payments.verificationStatus": "pending_verification" } },
+      { $unwind: "$payments" },
+      { $match: { "payments.verificationStatus": "pending_verification" } },
+      { $sort: { "payments.submittedAt": 1 } }, // oldest submission first
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $lookup: {
+          from:         "users",
+          localField:   "payments.resident",
+          foreignField: "_id",
+          as:           "resident",
+        },
+      },
+      { $unwind: { path: "$resident", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          billId:    "$_id",
+          title:     1,
+          billMonth: 1,
+          dueDate:   1,
+          payment:   "$payments",
+          resident: {
+            _id:   "$resident._id",
+            name:  "$resident.name",
+            phone: "$resident.phone",
+          },
+        },
+      },
+    ];
+    return MaintenanceBill.aggregate(pipeline).exec();
+  }
 }
 
 module.exports = new MaintenanceRepository();
