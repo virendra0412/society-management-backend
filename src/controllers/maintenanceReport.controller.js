@@ -36,6 +36,9 @@ const sendReport = (res, { html, csv, csvFilename, format }) => {
     // BOM so Excel on Windows opens UTF-8 CSV correctly (₹ symbol)
     return res.send("\uFEFF" + csv);
   }
+  
+  if (!html) throw AppError.internalServerError("Report HTML generation failed.");
+  
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   return res.send(html);
 };
@@ -48,7 +51,7 @@ const billReport = async (req, res) => {
 
   await audit(req, "report.bill_generated", "MaintenanceBill", req.params.billId, { format });
 
-  sendReport(res, {
+  return sendReport(res, {
     format,
     html:        billHtml(data),
     csv:         billCsv(data),
@@ -72,7 +75,7 @@ const receiptReport = async (req, res) => {
 
   // Receipts are HTML-only — there's no useful CSV format for a single receipt
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(receiptHtml(data));
+  return res.send(receiptHtml(data));
 };
 
 // ─── 3. Monthly Collection Report ─────────────────────────────────────────────
@@ -86,7 +89,7 @@ const collectionReport = async (req, res) => {
 
   await audit(req, "report.collection_generated", "Society", req.societyId, { month, format });
 
-  sendReport(res, {
+  return sendReport(res, {
     format,
     html:        collectionHtml(data),
     csv:         collectionCsv(data),
@@ -112,7 +115,7 @@ const historyReport = async (req, res) => {
 
   await audit(req, "report.history_generated", "User", residentId, { format, year: req.query.year });
 
-  sendReport(res, {
+  return sendReport(res, {
     format,
     html:        historyHtml(data),
     csv:         historyCsv(data),
@@ -129,7 +132,7 @@ const summaryReport = async (req, res) => {
 
   await audit(req, "report.summary_generated", "Society", req.societyId, { year, format });
 
-  sendReport(res, {
+  return sendReport(res, {
     format,
     html:        summaryHtml(data),
     csv:         summaryCsv(data),

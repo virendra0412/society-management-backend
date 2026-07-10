@@ -43,13 +43,15 @@ class PaymentSettingsService {
   async updateSettings(updates, adminUser) {
     const societyId = this._getSocietyId(adminUser);
 
-    const allowed = ["acceptedMethods", "bankTransfer", "upiQr", "chequeInstructions", "cashInstructions"];
+    const allowed = ["acceptedMethods", "bankTransfer", "upiQr", "chequeInstructions", "cashInstructions", "paymentVerificationEnabled"];
     const setObj  = {};
 
     for (const key of allowed) {
       if (updates[key] === undefined) continue;
 
-      if (key === "upiQr") {
+      if (key === "paymentVerificationEnabled") {
+        setObj.paymentVerificationEnabled = updates.paymentVerificationEnabled;
+      } else if (key === "upiQr") {
         // Only allow upiId from here — qrImageUrl is managed by uploadUpiQr()
         if (updates.upiQr.upiId !== undefined) {
           setObj["paymentSettings.upiQr.upiId"] = updates.upiQr.upiId;

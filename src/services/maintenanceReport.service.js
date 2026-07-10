@@ -14,7 +14,7 @@
  */
 
 const mongoose              = require("mongoose");
-const { MaintenanceBill }   = require("../models/maintenance.model");
+const MaintenanceBill       = require("../models/maintenance.model");
 const { Society }           = require("../models/society.model");
 const User                  = require("../models/user.model");
 const AppError              = require("../utils/AppError");

@@ -44,6 +44,7 @@ const updateSettingsSchema = Joi.object({
 
   chequeInstructions: Joi.string().max(500).trim().optional().allow(""),
   cashInstructions:   Joi.string().max(500).trim().optional().allow(""),
+  paymentVerificationEnabled: Joi.boolean().optional(),
 }).min(1);
 
 // ── Routes ───────────────────────────────────────────────────────────────────
