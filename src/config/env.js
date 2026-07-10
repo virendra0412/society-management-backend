@@ -53,6 +53,11 @@ const envSchema = Joi.object({
   // society-approved email so new admins know where to log in.
   APP_LOGIN_URL: Joi.string().optional().default(""),
 
+  // Inbox that receives marketing-website "Contact Us" submissions.
+  // TEMP default while the real business inbox is being set up — override
+  // in .env once it's ready.
+  BUSINESS_CONTACT_EMAIL: Joi.string().optional().default("virendachavda143@gmail.com"),
+
   // ── Razorpay (optional — payment routes return 503 until configured) ──────
   // Dashboard → Settings → API Keys. For Trial 1, use TEST mode keys
   // (rzp_test_xxxxx) — no business verification needed for test mode.
@@ -90,6 +95,7 @@ module.exports = {
   },
 
   allowedOrigins: validatedEnv.ALLOWED_ORIGINS.split(",").map((o) => o.trim()),
+  businessContactEmail: validatedEnv.BUSINESS_CONTACT_EMAIL,
   bcryptSaltRounds: validatedEnv.BCRYPT_SALT_ROUNDS,
   escalationThresholdHours: validatedEnv.ESCALATION_THRESHOLD_HOURS,
 

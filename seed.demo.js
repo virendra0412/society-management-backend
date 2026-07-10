@@ -195,6 +195,26 @@ async function seed() {
     moduleCharges: {
       analytics: 49,
     },
+    // ── Maintenance payment collection + verification (new) ──────────────────
+    // Sunrise is the "everything on" showcase: all manual methods accepted,
+    // proof-verification flow ENABLED — so the admin's "Pending Verifications"
+    // queue actually has something in it (see mayPayments overrides below).
+    paymentSettings: {
+      acceptedMethods: ["cash", "bank_transfer", "upi_qr"],
+      bankTransfer: {
+        accountHolderName: "Sunrise Residency Welfare Association",
+        accountNumber:     "50100123456789",
+        ifscCode:          "HDFC0001234",
+        bankName:          "HDFC Bank",
+        branchName:        "Satellite Road, Ahmedabad",
+      },
+      upiQr: {
+        upiId: "sunriseresidency@okhdfcbank",
+      },
+      cashInstructions:   "Pay at the society office (Block A, Ground Floor), 10 AM–6 PM, Mon–Sat. Ask for a signed receipt.",
+      chequeInstructions: null,
+    },
+    paymentVerificationEnabled: true,
   });
 
   // Patch admin memberships
@@ -370,6 +390,24 @@ async function seed() {
       amenities: true, events: true, parking: true,
       community: true, analytics: false, multilang: false,
     },
+    // ── Maintenance payment collection + verification (new) ──────────────────
+    // Palm Springs deliberately has verification DISABLED — gives a second
+    // society to test/demo the "off" state (Pending Verifications hidden,
+    // submit-proof hidden, admin falls back to manual record-payment) without
+    // having to toggle Sunrise off and lose its seeded queue data.
+    paymentSettings: {
+      acceptedMethods: ["cash", "bank_transfer", "cheque"],
+      bankTransfer: {
+        accountHolderName: "Palm Springs Society",
+        accountNumber:     "912010098765432",
+        ifscCode:          "ICIC0002345",
+        bankName:          "ICICI Bank",
+        branchName:        "Vastrapur, Ahmedabad",
+      },
+      cashInstructions:   "Pay at the security cabin; collect a receipt.",
+      chequeInstructions: "Cheque payable to 'Palm Springs Society'. Drop in the collection box at the clubhouse.",
+    },
+    paymentVerificationEnabled: false,
   });
 
   await User.findByIdAndUpdate(adminPS._id, {
@@ -850,8 +888,8 @@ async function seed() {
       body:  "Dear Residents, the main water line will be shut down tomorrow from 6AM to 2PM for emergency repairs. Please store water in advance. Inconvenience regretted.\n\n— Management Committee",
       tag:"Urgent", society:sunrise._id, postedBy:adminUser._id,
       isPinned:true, isPublished:true, createdAt:daysAgo(1) },
-    { title:"💰 May 2025 Maintenance Charges — Due by 31st",
-      body:  "Dear Residents, the monthly maintenance charges for May 2025 are due by May 31st. Amount: ₹3,000. Pay via UPI or at the society office. Late penalty of ₹100 applies after the due date.",
+    { title:"💰 May 2026 Maintenance Charges — Due by 31st",
+      body:  "Dear Residents, the monthly maintenance charges for May 2026 are due by May 31st. Amount: ₹3,000. Pay via UPI or at the society office. Late penalty of ₹100 applies after the due date.",
       tag:"Finance", society:sunrise._id, postedBy:adminUser._id,
       isPinned:true, isPublished:true, createdAt:daysAgo(5) },
     // 3 Regular published (TC-019 list order)
@@ -1064,7 +1102,7 @@ async function seed() {
 
   // ══════════════════════════════════════════════════════════════════════════
   //  MAINTENANCE BILLS — 9  (TC-036 to TC-041, TC-CJ-015 to TC-CJ-018)
-  //  Sunrise Residency: 6 months history (Jan–Jun 2025) — rich defaulter data
+  //  Sunrise Residency: 6 months history (Jan–Jun 2026) — rich defaulter data
   //  Palm Springs:      3 months history — different bill amounts + partial pay
   // ══════════════════════════════════════════════════════════════════════════
   log.section("Seeding Maintenance Bills");
@@ -1107,31 +1145,31 @@ async function seed() {
 
   // ── Sunrise Residency — 6 months of bills ────────────────────────────────
 
-  // JAN 2025 — closed, mixed (oldest history)
+  // JAN 2026 — closed, mixed (oldest history)
   await MaintenanceBill.create({
     society: sunrise._id, createdBy: adminUser._id,
-    title: "January 2025 — Monthly Maintenance",
-    description: "Jan 2025: security, housekeeping, lift AMC, generator fuel.",
-    billMonth: "2025-01", baseAmount: 2800,
+    title: "January 2026 — Monthly Maintenance",
+    description: "Jan 2026: security, housekeeping, lift AMC, generator fuel.",
+    billMonth: "2026-01", baseAmount: 2800,
     dueDate: daysAgo(155), penaltyEnabled: true, penaltyAmount: 100,
     penaltyAppliedAt: daysAgo(150), targetMode: "all",
     isPublished: true, isClosed: true,
     payments: buildPayments(residents, 2800, 100, daysAgo(155), daysAgo(145)),
   });
 
-  // FEB 2025 — closed
+  // FEB 2026 — closed
   await MaintenanceBill.create({
     society: sunrise._id, createdBy: adminUser._id,
-    title: "February 2025 — Monthly Maintenance",
-    description: "Feb 2025: security, housekeeping, lift AMC, generator fuel.",
-    billMonth: "2025-02", baseAmount: 2800,
+    title: "February 2026 — Monthly Maintenance",
+    description: "Feb 2026: security, housekeeping, lift AMC, generator fuel.",
+    billMonth: "2026-02", baseAmount: 2800,
     dueDate: daysAgo(124), penaltyEnabled: true, penaltyAmount: 100,
     penaltyAppliedAt: daysAgo(119), targetMode: "all",
     isPublished: true, isClosed: true,
     payments: buildPayments(residents, 2800, 100, daysAgo(124), daysAgo(114)),
   });
 
-  // MAR 2025 — closed, includes a partial payment (special case for resident[7])
+  // MAR 2026 — closed, includes a partial payment (special case for resident[7])
   const marPayments = buildPayments(residents, 2900, 100, daysAgo(93), daysAgo(83));
   // Override resident[7] to partial payment
   marPayments[7] = {
@@ -1147,16 +1185,16 @@ async function seed() {
   };
   await MaintenanceBill.create({
     society: sunrise._id, createdBy: adminUser._id,
-    title: "March 2025 — Monthly Maintenance",
-    description: "Mar 2025: security, housekeeping, common area electricity, lift AMC.",
-    billMonth: "2025-03", baseAmount: 2900,
+    title: "March 2026 — Monthly Maintenance",
+    description: "Mar 2026: security, housekeeping, common area electricity, lift AMC.",
+    billMonth: "2026-03", baseAmount: 2900,
     dueDate: daysAgo(93), penaltyEnabled: true, penaltyAmount: 100,
     penaltyAppliedAt: daysAgo(88), targetMode: "all",
     isPublished: true, isClosed: true,
     payments: marPayments,
   });
 
-  // APR 2025 — closed, some overdue (existing test case TC-040 defaulter list)
+  // APR 2026 — closed, some overdue (existing test case TC-040 defaulter list)
   const aprPayments = residents.map((res, i) => ({
     resident:      res._id,
     flat:          res.memberships[0]?.flat,
@@ -1167,22 +1205,22 @@ async function seed() {
     paidAmount:    i < 5 ? 2500 : 0,
     paidAt:        i < 5 ? daysAgo(25) : null,
     paymentMethod: i < 5 ? "upi" : null,
-    transactionId: i < 5 ? `TXN202504${String(i).padStart(4,"0")}` : null,
+    transactionId: i < 5 ? `TXN202604${String(i).padStart(4,"0")}` : null,
     remindersSent: i >= 6 ? 3 : 0,
     lastReminderAt: i >= 6 ? daysAgo(26) : null,
   }));
   await MaintenanceBill.create({
     society: sunrise._id, createdBy: adminUser._id,
-    title: "April 2025 — Monthly Maintenance",
-    description: "April 2025 maintenance charges.",
-    billMonth: "2025-04", baseAmount: 2500,
+    title: "April 2026 — Monthly Maintenance",
+    description: "April 2026 maintenance charges.",
+    billMonth: "2026-04", baseAmount: 2500,
     dueDate: daysAgo(30), penaltyEnabled: true, penaltyAmount: 100,
     penaltyAppliedAt: daysAgo(28), targetMode: "all",
     isPublished: true, isClosed: true, payments: aprPayments,
   });
-  log.ok("April 2025 bill — closed, mixed statuses (for defaulter list test)");
+  log.ok("April 2026 bill — closed, mixed statuses (for defaulter list test)");
 
-  // MAY 2025 — published, overdue, used in most existing TCs (TC-036 to TC-039)
+  // MAY 2026 — published, overdue, used in most existing TCs (TC-036 to TC-039)
   const mayPayments = residents.map((res, i) => {
     const roll = i % 5;
     return {
@@ -1195,7 +1233,7 @@ async function seed() {
       paidAmount:    roll < 2 ? 3000 : 0,
       paidAt:        roll < 2 ? daysAgo(10) : null,
       paymentMethod: roll < 2 ? ["upi","neft","cheque","cash"][i % 4] : null,
-      transactionId: roll < 2 ? `TXN202505${String(i).padStart(4,"0")}` : null,
+      transactionId: roll < 2 ? `TXN202605${String(i).padStart(4,"0")}` : null,
       remindersSent: roll === 2 ? 2 : 0,
       lastReminderAt: roll === 2 ? daysAgo(1) : null,
       penaltyAppliedAt: roll === 0 ? daysAgo(5) : null,
@@ -1206,33 +1244,75 @@ async function seed() {
     resident: rohanMehta._id, flat: "A-401", wing: "A",
     amount: 3000, penalty: 0, discount: 0, totalDue: 3000,
     status: "paid", paidAmount: 3000, paidAt: daysAgo(8),
-    paymentMethod: "upi", transactionId: "TXN20250599",
+    paymentMethod: "upi", transactionId: "TXN20260599",
     remindersSent: 0, lastReminderAt: null, penaltyAppliedAt: null,
   });
 
+  // ── Payment-verification flow overrides (new — Pending Verifications feature) ──
+  // Sunrise has paymentVerificationEnabled: true, so these give the admin's
+  // verification queue real, varied data to review instead of an empty screen.
+
+  // i=2 (Kiran Joshi, was "overdue"): submitted proof, admin ALREADY VERIFIED it
+  // → the full submit → verify → paid lifecycle, for testing receipts/reports.
+  mayPayments[2] = {
+    ...mayPayments[2],
+    status: "paid", paidAmount: 3100, paidAt: daysAgo(3),
+    paymentMethod: "neft", transactionId: null,
+    verificationStatus: "verified",
+    submittedMethod: "bank_transfer", submittedAmount: 3100,
+    utrNumber: "UTR2026050073211",
+    proofNote: "Paid via NEFT from HDFC a/c ending 4521.",
+    submittedAt: daysAgo(4), verifiedAt: daysAgo(3), verifiedBy: adminUser._id,
+    remindersSent: 0, lastReminderAt: null,
+  };
+
+  // i=3 (Deepak Nair, "unpaid"): submitted proof, sitting in the queue
+  // AWAITING admin review — this is what shows up under "Pending Verifications".
+  mayPayments[3] = {
+    ...mayPayments[3],
+    verificationStatus: "pending_verification",
+    submittedMethod: "upi_qr", submittedAmount: 3000,
+    utrNumber: "402612345678",
+    proofNote: "Paid via the UPI QR on the notice board.",
+    submittedAt: daysAgo(1),
+  };
+
+  // i=4 (Sneha Reddy, "unpaid"): submitted proof, admin REJECTED it (amount
+  // mismatch) — resident sees the rejection reason and can resubmit.
+  mayPayments[4] = {
+    ...mayPayments[4],
+    verificationStatus: "rejected",
+    submittedMethod: "cash", submittedAmount: 2500,
+    utrNumber: null,
+    proofNote: "Paid in cash to the watchman.",
+    submittedAt: daysAgo(6), verifiedAt: daysAgo(5), verifiedBy: adminUser._id,
+    rejectionReason: "Amount doesn't match the bill (₹2,500 submitted vs ₹3,000 due). Please resubmit with the correct amount or contact the office.",
+  };
+
   const mayBill = await MaintenanceBill.create({
     society: sunrise._id, createdBy: adminUser._id,
-    title: "May 2025 — Monthly Maintenance",
-    description: "Monthly maintenance for May 2025 covering security, housekeeping, lift AMC, generator fuel, common area electricity.",
-    billMonth: "2025-05", baseAmount: 3000,
+    title: "May 2026 — Monthly Maintenance",
+    description: "Monthly maintenance for May 2026 covering security, housekeeping, lift AMC, generator fuel, common area electricity.",
+    billMonth: "2026-05", baseAmount: 3000,
     dueDate: daysAgo(1),   // overdue — TC-CJ-015
     penaltyEnabled: true, penaltyAmount: 100,
     penaltyAppliedAt: daysAgo(5),
     targetMode: "all", isPublished: true, isClosed: false,
     payments: mayPayments,
   });
-  log.ok(`May 2025 bill — published, ${mayPayments.length} payments (paid/overdue/unpaid), due date past`);
+  log.ok(`May 2026 bill — published, ${mayPayments.length} payments (paid/overdue/unpaid), due date past`);
+  log.ok("  → includes 1 verified, 1 pending, 1 rejected proof submission (payment-verification queue)");
 
-  // JUN 2025 — DRAFT (invisible to residents — TC-037)
+  // JUN 2026 — DRAFT (invisible to residents — TC-037)
   await MaintenanceBill.create({
     society: sunrise._id, createdBy: adminUser._id,
-    title: "June 2025 — Monthly Maintenance (Draft)",
-    description: "Draft bill for June 2025. Pending committee review before publishing.",
-    billMonth: "2025-06", baseAmount: 3500,
+    title: "June 2026 — Monthly Maintenance (Draft)",
+    description: "Draft bill for June 2026. Pending committee review before publishing.",
+    billMonth: "2026-06", baseAmount: 3500,
     dueDate: daysFromNow(25), penaltyEnabled: true, penaltyAmount: 100,
     targetMode: "all", isPublished: false, isClosed: false, payments: [],
   });
-  log.ok("June 2025 bill — DRAFT (residents cannot see)");
+  log.ok("June 2026 bill — DRAFT (residents cannot see)");
 
   // ── Palm Springs — 3 months of bills (higher amounts, partial payments) ────
 
@@ -1257,30 +1337,30 @@ async function seed() {
       };
     });
 
-  // Palm Springs — Apr 2025
+  // Palm Springs — Apr 2026
   await MaintenanceBill.create({
     society: palmSprings._id, createdBy: adminPS._id,
-    title: "April 2025 — Monthly Maintenance",
-    description: "Apr 2025: security, housekeeping, pool AMC, garden maintenance.",
-    billMonth: "2025-04", baseAmount: 4500,
+    title: "April 2026 — Monthly Maintenance",
+    description: "Apr 2026: security, housekeeping, pool AMC, garden maintenance.",
+    billMonth: "2026-04", baseAmount: 4500,
     dueDate: daysAgo(62), penaltyEnabled: true, penaltyAmount: 200,
     penaltyAppliedAt: daysAgo(58), targetMode: "all",
     isPublished: true, isClosed: true,
     payments: buildPSPayments(psResidents, 4500, 200, daysAgo(62), daysAgo(55)),
   });
 
-  // Palm Springs — May 2025 (published, still open)
+  // Palm Springs — May 2026 (published, still open)
   await MaintenanceBill.create({
     society: palmSprings._id, createdBy: adminPS._id,
-    title: "May 2025 — Monthly Maintenance",
-    description: "May 2025: security, housekeeping, pool AMC, gym equipment maintenance.",
-    billMonth: "2025-05", baseAmount: 4500,
+    title: "May 2026 — Monthly Maintenance",
+    description: "May 2026: security, housekeeping, pool AMC, gym equipment maintenance.",
+    billMonth: "2026-05", baseAmount: 4500,
     dueDate: daysAgo(3), penaltyEnabled: true, penaltyAmount: 200,
     penaltyAppliedAt: daysAgo(1), targetMode: "all",
     isPublished: true, isClosed: false,
     payments: buildPSPayments(psResidents, 4500, 200, daysAgo(3), daysAgo(5)),
   });
-  log.ok("Palm Springs — Apr + May 2025 bills created (4.5k/flat, mix of paid/overdue/partial)");
+  log.ok("Palm Springs — Apr + May 2026 bills created (4.5k/flat, mix of paid/overdue/partial)");
 
   // ══════════════════════════════════════════════════════════════════════════
   //  AMENITIES — 3  (TC-042 to TC-045, TC-CJ-020/021)
@@ -1371,7 +1451,7 @@ async function seed() {
   // Upcoming event with RSVPs (TC-047 RSVP, TC-CJ-022 reminder pending, TC-PN-003 deep link)
   await Event.create({
     society:sunrise._id, createdBy:adminUser._id,
-    title:"🪔 Diwali Grand Celebration 2025",
+    title:"🪔 Diwali Grand Celebration 2026",
     description:"Join us for the annual Diwali night — rangoli competition, puja, sweets distribution, and fireworks display from the terrace. Dress code: Traditional attire.",
     category:"Festival",
     startTime:daysFromNow(25), endTime:new Date(daysFromNow(25).getTime()+18_000_000),
@@ -1492,8 +1572,8 @@ async function seed() {
 
   const auditEntries = [
     // Maintenance actions
-    { userId:adminUser._id, societyId:sunrise._id, action:"maintenance.bill_created",    entity:"MaintenanceBill", entityId:mayBill._id,    changes:{ title:"May 2025 — Monthly Maintenance", amount:3000 },             ip:"127.0.0.1", timestamp:daysAgo(5)  },
-    { userId:adminUser._id, societyId:sunrise._id, action:"maintenance.bill_published",  entity:"MaintenanceBill", entityId:mayBill._id,    changes:{ dueDate:"2025-05-31", flatCount:9 },                               ip:"127.0.0.1", timestamp:daysAgo(5)  },
+    { userId:adminUser._id, societyId:sunrise._id, action:"maintenance.bill_created",    entity:"MaintenanceBill", entityId:mayBill._id,    changes:{ title:"May 2026 — Monthly Maintenance", amount:3000 },             ip:"127.0.0.1", timestamp:daysAgo(5)  },
+    { userId:adminUser._id, societyId:sunrise._id, action:"maintenance.bill_published",  entity:"MaintenanceBill", entityId:mayBill._id,    changes:{ dueDate:"2026-05-31", flatCount:9 },                               ip:"127.0.0.1", timestamp:daysAgo(5)  },
     { userId:rekhaIyer._id, societyId:sunrise._id, action:"maintenance.payment_recorded",entity:"MaintenanceBill", entityId:mayBill._id,    changes:{ amount:3000, method:"upi", flat:"C-302" },                        ip:"127.0.0.1", timestamp:daysAgo(4)  },
     { userId:adminUser._id, societyId:sunrise._id, action:"maintenance.penalty_applied", entity:"MaintenanceBill", entityId:mayBill._id,    changes:{ penaltyAmount:100, appliedBy:"Admin Sharma" },                    ip:"127.0.0.1", timestamp:daysAgo(3)  },
     // Visitor actions
@@ -1514,7 +1594,7 @@ async function seed() {
     { userId:adminUser._id,    societyId:sunrise._id, action:"parking.slot_created",     entity:"ParkingSlot", entityId:createdSlots[0]._id, changes:{ slotNumber:"B-001", type:"4W", zone:"Basement Level 1" },       ip:"127.0.0.1", timestamp:daysAgo(60) },
     { userId:adminUser._id,    societyId:sunrise._id, action:"parking.request_approved", entity:"ParkingRequest", entityId:null,          changes:{ slotNumber:"TW-001", assignedTo:"D-404" },                         ip:"127.0.0.1", timestamp:daysAgo(5)  },
     // Event actions
-    { userId:adminUser._id,    societyId:sunrise._id, action:"event.created",            entity:"Event", entityId:null,                  changes:{ title:"Diwali Grand Celebration 2025", category:"Festival" },        ip:"127.0.0.1", timestamp:daysAgo(5)  },
+    { userId:adminUser._id,    societyId:sunrise._id, action:"event.created",            entity:"Event", entityId:null,                  changes:{ title:"Diwali Grand Celebration 2026", category:"Festival" },        ip:"127.0.0.1", timestamp:daysAgo(5)  },
     { userId:adminUser._id,    societyId:sunrise._id, action:"event.cancelled",          entity:"Event", entityId:null,                  changes:{ title:"Swimming Competition", reason:"Pool maintenance" },           ip:"127.0.0.1", timestamp:daysAgo(2)  },
     // Member action
     { userId:adminUser._id,    societyId:sunrise._id, action:"member.approved",          entity:"User", entityId:residents[0]._id,       changes:{ flat:residents[0].memberships[0]?.flat, approvedBy:"Admin Sharma" }, ip:"127.0.0.1", timestamp:daysAgo(30) },
@@ -1536,7 +1616,7 @@ async function seed() {
     // TC-PN-004: Multi-society notification for Rohan
     { userId:rohanMehta._id, societyId:greenValley._id, title:"New Notice — Green Valley", body:"Water supply disruption notice from Green Valley.", type:"notice_published", data:{ societyId:greenValley._id.toString() }, read:false },
     // TC-PN-005: Bill published notification
-    { userId:residents[2]._id, societyId:sunrise._id, title:"Bill Published", body:"May 2025 maintenance bill has been published. Due by May 31st.", type:"bill_published", data:{ billId:mayBill._id.toString(), societyId:sunrise._id.toString() }, read:false },
+    { userId:residents[2]._id, societyId:sunrise._id, title:"Bill Published", body:"May 2026 maintenance bill has been published. Due by May 31st.", type:"bill_published", data:{ billId:mayBill._id.toString(), societyId:sunrise._id.toString() }, read:false },
     // TC-PN-006: Walk-in notification
     { userId:residents[1]._id, societyId:sunrise._id, title:"Visitor Arrived", body:"Swiggy Delivery is at the gate for your flat.", type:"visitor_walkin", data:{ visitorId:visitorDocs[4]._id.toString(), societyId:sunrise._id.toString() }, read:false },
     // Read notification
@@ -1544,7 +1624,7 @@ async function seed() {
     // Subscription expiry warning (TC-CJ-001)
     { userId:adminUser._id, societyId:sunrise._id, title:"Subscription Expiring Soon", body:"Sunrise Residency's trial plan expires in 6 days. Renew to avoid service interruption.", type:"subscription_expiry_warning", data:{ daysLeft:6, societyId:sunrise._id.toString() }, read:false },
     // Maintenance reminder (TC-CJ-015)
-    { userId:residents[0]._id, societyId:sunrise._id, title:"Payment Overdue", body:"Your maintenance payment of ₹3,100 for 'May 2025' is 1 day overdue.", type:"maintenance_reminder", data:{ billId:mayBill._id.toString(), daysOverdue:1 }, read:false },
+    { userId:residents[0]._id, societyId:sunrise._id, title:"Payment Overdue", body:"Your maintenance payment of ₹3,100 for 'May 2026' is 1 day overdue.", type:"maintenance_reminder", data:{ billId:mayBill._id.toString(), daysOverdue:1 }, read:false },
   ]);
   log.ok("8 notifications (issue_update, visitor_walkin, bill_published, booking_confirmed, sub_expiry, maintenance_reminder)");
 
@@ -1646,6 +1726,7 @@ async function seed() {
   console.log(`   TC-028–029      Contacts                → 10 contacts`);
   console.log(`   TC-030–035      Visitors                → 20 visitors all flows`);
   console.log(`   TC-036–041      Maintenance             → 3 bills, mixed payments`);
+  console.log(`   TC-MP-001–004   Payment verification    → Sunrise ON (1 verified/1 pending/1 rejected), Palm Springs OFF`);
   console.log(`   TC-042–045      Amenities               → 3 amenities, 10 bookings`);
   console.log(`   TC-046–048      Events                  → 5 events all states`);
   console.log(`   TC-049–053      Parking                 → 20 slots, 8 requests`);

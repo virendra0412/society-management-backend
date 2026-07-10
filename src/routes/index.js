@@ -7,6 +7,9 @@ const { protect, requireSociety } = require("../middlewares/auth.middleware");
 // ─── Super Admin Routes ───────────────────────────────────────────────────────
 const superAdminRoutes = require("./superAdmin.routes");
 
+// ─── Public Routes (marketing website, no auth) ────────────────────────────────
+const publicRoutes = require("./public.routes");
+
 // ─── Phase 1 Routes ───────────────────────────────────────────────────────────
 const authRoutes    = require("./auth.routes");
 const userRoutes    = require("./user.routes");
@@ -35,6 +38,9 @@ const auditLogRoutes = require("./auditLog.routes");
 const paymentRoutes = require("./payment.routes");
 
 // ─── Mount Routes ─────────────────────────────────────────────────────────────
+
+// Public — no auth, called directly by the marketing website
+router.use("/public", publicRoutes);
 
 // Auth & user — no module gate
 router.use("/auth",     authRoutes);
