@@ -581,7 +581,10 @@ class SuperAdminService {
    * Includes upgrade requests (pending).
    */
   async getModules(societyId) {
-    const society = await Society.findById(societyId, "enabledModules moduleCharges upgradeRequests name").lean();
+    const society = await Society.findById(
+      societyId,
+      "enabledModules moduleCharges upgradeRequests name paymentVerificationEnabled"
+    ).lean();
     if (!society) throw AppError.notFound("Society not found.");
 
     const modules = {};
@@ -600,14 +603,22 @@ class SuperAdminService {
 
     const pendingRequests = (society.upgradeRequests || []).filter(r => r.status === "pending");
 
-    return { societyName: society.name, modules, monthlyTotal, pendingRequests, bundles: MODULE_BUNDLES };
+    return {
+      societyName: society.name,
+      modules,
+      monthlyTotal,
+      pendingRequests,
+      bundles: MODULE_BUNDLES,
+      // Sub-flag, only meaningful when modules.maintenance.enabled is true
+      paymentVerificationEnabled: society.paymentVerificationEnabled !== false,
+    };
   }
 
   /**
    * SA: toggle one or more modules for a society.
    * Accepts { modules: { visitors: true, maintenance: false, ... }, charges: { visitors: 350 } }
    */
-  async updateModules(societyId, { modules: moduleUpdates, charges: chargeUpdates }, superAdmin) {
+  async updateModules(societyId, { modules: moduleUpdates, charges: chargeUpdates, paymentVerificationEnabled }, superAdmin) {
     const society = await Society.findById(societyId);
     if (!society) throw AppError.notFound("Society not found.");
 
@@ -644,12 +655,20 @@ class SuperAdminService {
       }
     }
 
+    // Independent sub-flag — does not touch enabledModules.maintenance,
+    // does not require maintenance to be enabled to set (harmless either way
+    // since requireModule("maintenance") is checked first on every request).
+    if (typeof paymentVerificationEnabled === "boolean") {
+      society.paymentVerificationEnabled = paymentVerificationEnabled;
+    }
+
     await society.save();
 
     return {
-      enabledModules: society.enabledModules,
-      moduleCharges:  society.moduleCharges,
-      monthlyTotal:   society.monthlyModuleTotal,
+      enabledModules:              society.enabledModules,
+      moduleCharges:                society.moduleCharges,
+      monthlyTotal:                society.monthlyModuleTotal,
+      paymentVerificationEnabled:  society.paymentVerificationEnabled,
     };
   }
 

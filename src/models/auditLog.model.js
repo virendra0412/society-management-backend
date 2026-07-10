@@ -104,6 +104,13 @@ const AUDIT_ACTIONS = Object.freeze([
   // Admin
   "admin.member_removed",
   "admin.role_changed",
+
+  // Reports
+  "report.bill_generated",
+  "report.receipt_generated",
+  "report.collection_generated",
+  "report.history_generated",
+  "report.summary_generated",
 ]);
 
 const auditLogSchema = new mongoose.Schema(

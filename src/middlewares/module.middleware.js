@@ -50,4 +50,47 @@ const requireModule = (moduleKey) => async (req, res, next) => {
   next();
 };
 
-module.exports = { requireModule };
+/**
+ * Gate the maintenance *payment-verification* flow specifically
+ * (submit-proof, verify, reject, pending-verifications queue).
+ *
+ * This is separate from requireModule("maintenance"): that gate already runs
+ * first at the router mount point in routes/index.js, so by the time this
+ * middleware runs we know maintenance itself is enabled. This just adds a
+ * narrower on/off switch for verification only — bill creation and viewing
+ * are unaffected by this flag.
+ *
+ * Usage:
+ *   router.post("/:billId/payments/:paymentId/submit-proof",
+ *     requireRole("resident"), requireMaintenancePaymentVerification, ...);
+ */
+const requireMaintenancePaymentVerification = async (req, res, next) => {
+  const societyId = req.societyId;
+  if (!societyId) {
+    return next(AppError.forbidden("Society context is required."));
+  }
+
+  const society = await Society.findById(societyId, "paymentVerificationEnabled isActive").lean();
+  if (!society) {
+    return next(AppError.notFound("Society not found."));
+  }
+  if (!society.isActive) {
+    return next(AppError.forbidden("This society account is suspended."));
+  }
+
+  // Default to enabled for societies created before this flag existed.
+  const isEnabled = society.paymentVerificationEnabled !== false;
+  if (!isEnabled) {
+    return next(
+      AppError.forbidden(
+        "Maintenance payment verification is temporarily disabled for your society. " +
+        "You can still view and create bills. Contact your administrator for details.",
+        "PAYMENT_VERIFICATION_DISABLED"
+      )
+    );
+  }
+
+  next();
+};
+
+module.exports = { requireModule, requireMaintenancePaymentVerification };

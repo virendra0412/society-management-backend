@@ -355,9 +355,146 @@ const sendSubscriptionExpiryEmail = async ({ to, adminName, societyName, daysLef
   }
 };
 
+const CONTACT_TYPE_LABEL = {
+  demo: "Book a product demo",
+  pricing: "Pricing & plan query",
+  support: "Technical support",
+  partnership: "Partnership / reseller",
+  press: "Press / media enquiry",
+  other: "Other",
+};
+
+/**
+ * Sent when someone submits the "Contact Us" form on the marketing website.
+ * Notifies the business inbox (BUSINESS_CONTACT_EMAIL) with the lead's
+ * details; replyTo is set to the submitter's own email so the team can hit
+ * "reply" directly. This is the one email sender shared with the public
+ * website — everything else in this file is only ever called from the
+ * mobile app's backend flows.
+ *
+ * Not fatal if it fails to send — caller should surface a friendly error
+ * to the website visitor rather than crash the request.
+ */
+const sendContactFormEmail = async ({ name, email, phone, society, units, message, type }) => {
+  const to = process.env.BUSINESS_CONTACT_EMAIL || "abc@gmail.com";
+  const typeLabel = CONTACT_TYPE_LABEL[type] || type || "General enquiry";
+
+  logger.info("[Email] sendContactFormEmail called", { to: _maskEmail(to), type });
+  logConfigStatus();
+
+  if (!isConfigured()) {
+    if (process.env.NODE_ENV === "production") {
+      throw AppError.internal("Contact form email is not configured.");
+    }
+    console.log(`[DEV] Contact form submission (${typeLabel}) from ${name} <${email}>: ${message}`);
+    return;
+  }
+
+  const transporter = createTransporter();
+  const detailRows = [["Name", name], ["Email", email]];
+  if (phone) detailRows.push(["Phone", phone]);
+  if (society) detailRows.push(["Society", society]);
+  if (units) detailRows.push(["Units", units]);
+  detailRows.push(["Enquiry type", typeLabel]);
+
+  try {
+    logger.info("[Email] sendContactFormEmail — sending...", { to: _maskEmail(to), type });
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to,
+      replyTo: email,
+      subject: `[${typeLabel}] New website enquiry from ${name}${society ? ` — ${society}` : ""}`,
+      text:
+        `New contact form submission from the website.\n\n` +
+        detailRows.map(([k, v]) => `${k}: ${v}`).join("\n") +
+        `\n\nMessage:\n${message}`,
+      html: _emailLayout({
+        preheader: `New website enquiry from ${name}`,
+        heading: "New website enquiry",
+        bodyHtml: `
+          ${_credentialBox(detailRows)}
+          <p style="margin-top:16px;"><strong>Message</strong></p>
+          <p style="white-space:pre-wrap;">${String(message).replace(/</g, "&lt;")}</p>
+        `,
+        ctaLabel: `Reply to ${name}`,
+        ctaUrl: `mailto:${email}?subject=${encodeURIComponent("Re: Your SocietyApp enquiry")}`,
+      }),
+    });
+    logger.info("[Email] sendContactFormEmail — sent", { to: _maskEmail(to), messageId: info.messageId, response: info.response });
+  } catch (err) {
+    _logSendFailure("sendContactFormEmail", err);
+    throw err;
+  }
+};
+
+/**
+ * Sent when someone books a demo via the "Request a Demo" form on the
+ * marketing website. Same delivery mechanism as sendContactFormEmail
+ * (BUSINESS_CONTACT_EMAIL, same SMTP setup) but keeps its own tailored
+ * copy — demo requests have a 2-hour response SLA and a preferred-slot
+ * field that a generic enquiry doesn't.
+ *
+ * Not fatal if it fails to send — caller should surface a friendly error
+ * to the website visitor rather than crash the request.
+ */
+const sendDemoRequestEmail = async ({ name, email, phone, society, units, preferredSlot, notes }) => {
+  const to = process.env.BUSINESS_CONTACT_EMAIL || "abc@gmail.com";
+
+  logger.info("[Email] sendDemoRequestEmail called", { to: _maskEmail(to) });
+  logConfigStatus();
+
+  if (!isConfigured()) {
+    if (process.env.NODE_ENV === "production") {
+      throw AppError.internal("Demo request email is not configured.");
+    }
+    console.log(`[DEV] Demo request from ${name} <${email}>${preferredSlot ? ` — preferred slot: ${preferredSlot}` : ""}`);
+    return;
+  }
+
+  const transporter = createTransporter();
+  const detailRows = [["Name", name], ["Email", email]];
+  if (phone) detailRows.push(["Phone", phone]);
+  if (society) detailRows.push(["Society", society]);
+  if (units) detailRows.push(["Units", units]);
+  if (preferredSlot) detailRows.push(["Preferred slot", preferredSlot]);
+
+  try {
+    logger.info("[Email] sendDemoRequestEmail — sending...", { to: _maskEmail(to) });
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM,
+      to,
+      replyTo: email,
+      subject: `Demo request from ${name}${society ? ` — ${society}` : ""}${preferredSlot ? ` [${preferredSlot}]` : ""}`,
+      text:
+        `New demo request from the website. Confirm the slot and send a calendar invite within 2 hours.\n\n` +
+        detailRows.map(([k, v]) => `${k}: ${v}`).join("\n") +
+        (notes ? `\n\nNotes:\n${notes}` : ""),
+      html: _emailLayout({
+        preheader: `New demo request from ${name}`,
+        heading: "New demo request",
+        bodyHtml: `
+          <p style="color:#92400E; background:#FEF3C7; border-radius:8px; padding:10px 14px; font-weight:600; font-size:13px;">
+            Action required — confirm this slot and send a calendar invite within 2 hours.
+          </p>
+          ${_credentialBox(detailRows)}
+          ${notes ? `<p style="margin-top:16px;"><strong>Notes</strong></p><p style="white-space:pre-wrap;">${String(notes).replace(/</g, "&lt;")}</p>` : ""}
+        `,
+        ctaLabel: `Reply to ${name}`,
+        ctaUrl: `mailto:${email}?subject=${encodeURIComponent("Your SocietyApp demo")}`,
+      }),
+    });
+    logger.info("[Email] sendDemoRequestEmail — sent", { to: _maskEmail(to), messageId: info.messageId, response: info.response });
+  } catch (err) {
+    _logSendFailure("sendDemoRequestEmail", err);
+    throw err;
+  }
+};
+
 module.exports = {
   sendPasswordResetOTP,
   sendSocietyApprovedEmail,
   sendApplicationRejectedEmail,
   sendSubscriptionExpiryEmail,
+  sendContactFormEmail,
+  sendDemoRequestEmail,
 };

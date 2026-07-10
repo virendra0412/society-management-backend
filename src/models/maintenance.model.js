@@ -90,6 +90,61 @@ const paymentRecordSchema = new mongoose.Schema(
       default: null,
     },
 
+    // ── Resident-submitted proof (manual payment methods) ──────────────────────
+    // Flow: resident pays externally (cash/bank transfer/UPI QR/cheque), then
+    // submits proof here. Admin reviews and either verifies (→ paid) or rejects
+    // (→ back to unpaid, resident can resubmit). Razorpay payments skip this
+    // entirely — the webhook marks the record "paid" directly.
+    verificationStatus: {
+      type: String,
+      enum: ["not_submitted", "pending_verification", "verified", "rejected"],
+      default: "not_submitted",
+      index: true,
+    },
+    submittedMethod: {
+      // Method resident claims to have used
+      type: String,
+      enum: ["cash", "bank_transfer", "upi_qr", "cheque", null],
+      default: null,
+    },
+    submittedAmount: {
+      type: Number,
+      default: null,
+    },
+    utrNumber: {
+      // UTR / UPI reference / cheque number — whatever proves the transaction
+      type: String,
+      trim: true,
+      maxlength: [50, "Reference number too long"],
+      default: null,
+    },
+    proofNote: {
+      // Resident's optional note, e.g. "paid from dad's account"
+      type: String,
+      trim: true,
+      maxlength: [300, "Note too long"],
+      default: null,
+    },
+    submittedAt: {
+      type: Date,
+      default: null,
+    },
+    verifiedAt: {
+      type: Date,
+      default: null,
+    },
+    verifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    rejectionReason: {
+      type: String,
+      trim: true,
+      maxlength: [300, "Reason too long"],
+      default: null,
+    },
+
     // ── Reminders ─────────────────────────────────────────────────────────────
     remindersSent: {
       type: Number,
@@ -225,6 +280,8 @@ maintenanceBillSchema.index({ society: 1, billMonth: 1 });
 maintenanceBillSchema.index({ society: 1, isPublished: 1 });
 // For reminder job: quickly find unpaid/overdue records across all bills
 maintenanceBillSchema.index({ "payments.status": 1, "payments.lastReminderAt": 1 });
+// For the admin verification queue: quickly find bills with a pending submission
+maintenanceBillSchema.index({ society: 1, "payments.verificationStatus": 1 });
 
 // ─── Virtuals ─────────────────────────────────────────────────────────────────
 //

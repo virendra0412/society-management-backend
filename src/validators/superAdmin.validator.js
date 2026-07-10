@@ -142,6 +142,11 @@ const moduleChargesObj = Joi.object().pattern(
 const updateModules = Joi.object({
   modules: moduleToggleObj.optional(),
   charges: moduleChargesObj.optional(),
+  // Independent sub-flag: pauses only the maintenance payment-verification
+  // flow (submit-proof / verify / reject / pending-verifications). Bill
+  // creation and viewing are unaffected. Meaningless unless
+  // modules.maintenance (or the society's existing state) is enabled.
+  paymentVerificationEnabled: Joi.boolean().optional(),
 }).min(1);
 
 const applyBundle = Joi.object({

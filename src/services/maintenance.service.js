@@ -4,6 +4,7 @@ const AppError = require("../utils/AppError");
 const { parsePagination, buildPaginationMeta } = require("../utils/pagination");
 const { sendPushNotification } = require("../utils/notification");
 const User = require("../models/user.model");
+const { Society } = require("../models/society.model");
 
 class MaintenanceService {
   _getSocietyId(user) {
@@ -324,6 +325,165 @@ class MaintenanceService {
   async getDefaulters(societyId, query) {
     const { page, limit, skip } = parsePagination(query);
     return maintenanceRepository.findDefaultersBySociety(societyId, { skip, limit });
+  }
+
+  // ─── Manual payment proof (cash / bank transfer / UPI QR / cheque) ─────────
+
+  /**
+   * Resident: submit proof of an offline payment (method + UTR/reference).
+   * Moves the record to "pending_verification" and notifies the society admin.
+   * Does NOT mark the bill paid — an admin must verify first.
+   */
+  async submitPaymentProof(billId, paymentId, proofData, residentUser) {
+    const societyId = this._getSocietyId(residentUser);
+    const bill = await maintenanceRepository.findBillById(billId);
+    if (!bill) throw AppError.notFound("Bill not found.");
+    if (bill.society.toString() !== societyId?.toString()) throw AppError.forbidden();
+    if (!bill.isPublished) throw AppError.badRequest("Bill has not been published yet.");
+
+    const paymentRecord = bill.payments.id(paymentId);
+    if (!paymentRecord) throw AppError.notFound("Payment record not found.");
+    if (paymentRecord.resident.toString() !== residentUser._id.toString()) {
+      throw AppError.forbidden("You can only submit proof for your own payment record.");
+    }
+    if (paymentRecord.status === "paid") {
+      throw AppError.badRequest("This payment has already been confirmed.");
+    }
+    if (paymentRecord.verificationStatus === "pending_verification") {
+      throw AppError.badRequest("Proof already submitted and awaiting verification.");
+    }
+
+    const updatedBill = await maintenanceRepository.submitPaymentProof(billId, paymentId, {
+      submittedMethod: proofData.submittedMethod,
+      submittedAmount: proofData.submittedAmount ?? paymentRecord.totalDue,
+      utrNumber:       proofData.utrNumber,
+      proofNote:       proofData.proofNote,
+    });
+
+    // Notify the society admin so it shows up in their verification queue
+    const admin = await userRepository.findById(bill.createdBy);
+    if (admin?.fcmToken) {
+      await sendPushNotification(
+        [admin.fcmToken],
+        {
+          title: "💰 Payment submitted for verification",
+          body: `Flat ${paymentRecord.flat} submitted ₹${proofData.submittedAmount ?? paymentRecord.totalDue} — tap to verify.`,
+        },
+        { type: "payment_submitted", billId: bill._id.toString(), paymentId: paymentId.toString() }
+      );
+    }
+
+    return updatedBill;
+  }
+
+  /**
+   * Admin: approve a submitted proof → payment marked paid.
+   */
+  async verifyPayment(billId, paymentId, adminUser) {
+    const societyId = this._getSocietyId(adminUser);
+    const bill = await maintenanceRepository.findBillById(billId);
+    if (!bill) throw AppError.notFound("Bill not found.");
+    if (bill.society.toString() !== societyId?.toString()) throw AppError.forbidden();
+
+    const paymentRecord = bill.payments.id(paymentId);
+    if (!paymentRecord) throw AppError.notFound("Payment record not found.");
+    if (paymentRecord.verificationStatus !== "pending_verification") {
+      throw AppError.badRequest("This payment has no submission awaiting verification.");
+    }
+
+    const updatedBill = await maintenanceRepository.updatePaymentRecord(billId, paymentId, {
+      status:             "paid",
+      verificationStatus: "verified",
+      paidAmount:         paymentRecord.submittedAmount,
+      paidAt:             new Date(),
+      paymentMethod:      paymentRecord.submittedMethod,
+      transactionId:      paymentRecord.utrNumber,
+      verifiedAt:         new Date(),
+      verifiedBy:         adminUser._id,
+      rejectionReason:    null,
+    });
+
+    const resident = await userRepository.findById(paymentRecord.resident);
+    if (resident?.fcmToken) {
+      await sendPushNotification(
+        [resident.fcmToken],
+        {
+          title: "✅ Payment Confirmed",
+          body: `Your payment of ₹${paymentRecord.submittedAmount} for "${bill.title}" has been verified.`,
+        },
+        { type: "payment_confirmed", billId: bill._id.toString() }
+      );
+    }
+
+    return updatedBill;
+  }
+
+  /**
+   * Admin: reject a submitted proof (e.g. UTR not found / amount mismatch).
+   * Record goes back to unpaid so the resident can resubmit.
+   */
+  async rejectPayment(billId, paymentId, reason, adminUser) {
+    const societyId = this._getSocietyId(adminUser);
+    const bill = await maintenanceRepository.findBillById(billId);
+    if (!bill) throw AppError.notFound("Bill not found.");
+    if (bill.society.toString() !== societyId?.toString()) throw AppError.forbidden();
+
+    const paymentRecord = bill.payments.id(paymentId);
+    if (!paymentRecord) throw AppError.notFound("Payment record not found.");
+    if (paymentRecord.verificationStatus !== "pending_verification") {
+      throw AppError.badRequest("This payment has no submission awaiting verification.");
+    }
+
+    const updatedBill = await maintenanceRepository.rejectPaymentProof(billId, paymentId, reason);
+
+    const resident = await userRepository.findById(paymentRecord.resident);
+    if (resident?.fcmToken) {
+      await sendPushNotification(
+        [resident.fcmToken],
+        {
+          title: "⚠️ Payment could not be verified",
+          body: reason
+            ? `Your submission for "${bill.title}" was rejected: ${reason}. Please resubmit.`
+            : `Your submission for "${bill.title}" could not be verified. Please resubmit.`,
+        },
+        { type: "payment_rejected", billId: bill._id.toString() }
+      );
+    }
+
+    return updatedBill;
+  }
+
+  /**
+   * Admin: list of payment records across the society awaiting verification.
+   */
+  async getPendingVerifications(societyId, query) {
+    const { page, limit, skip } = parsePagination(query);
+    return maintenanceRepository.findPendingVerifications(societyId, { skip, limit });
+  }
+
+  // ─── Payment-verification on/off switch (society admin, self-service) ─────
+  // Separate from SA's enabledModules.maintenance — this only pauses/resumes
+  // proof submission + verify/reject for the admin's own society. Bill
+  // creation and viewing are never affected by this flag. Reading current
+  // state is handled by GET /modules/status (module.controller.js), which
+  // already returns this field for any society member.
+
+  /**
+   * Admin (chairman/secretary): toggle it for their own society only.
+   * Scoped strictly to adminUser's society — cannot affect any other society.
+   */
+  async setPaymentVerificationStatus(enabled, adminUser) {
+    if (typeof enabled !== "boolean") {
+      throw AppError.badRequest("`enabled` must be true or false.");
+    }
+    const societyId = this._getSocietyId(adminUser);
+    const society = await Society.findById(societyId);
+    if (!society) throw AppError.notFound("Society not found.");
+
+    society.paymentVerificationEnabled = enabled;
+    await society.save();
+
+    return { paymentVerificationEnabled: society.paymentVerificationEnabled };
   }
 }
 

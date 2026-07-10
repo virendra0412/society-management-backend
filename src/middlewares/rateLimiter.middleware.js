@@ -47,4 +47,19 @@ const actionLimiter = rateLimit({
   skip: (req) => process.env.NODE_ENV === "test",
 });
 
-module.exports = { generalLimiter, authLimiter, actionLimiter };
+/**
+ * Public (no-auth) limiter — for endpoints reachable directly from the
+ * marketing website with no login required, e.g. the Contact Us form.
+ * Tighter than generalLimiter since there's no account/session behind
+ * these requests to hold accountable — 5 submissions per minute per IP.
+ */
+const publicLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+  skip: (req) => process.env.NODE_ENV === "test",
+});
+
+module.exports = { generalLimiter, authLimiter, actionLimiter, publicLimiter };
