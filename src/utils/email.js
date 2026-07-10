@@ -376,7 +376,7 @@ const CONTACT_TYPE_LABEL = {
  * to the website visitor rather than crash the request.
  */
 const sendContactFormEmail = async ({ name, email, phone, society, units, message, type }) => {
-  const to = process.env.BUSINESS_CONTACT_EMAIL || "abc@gmail.com";
+  const to = process.env.BUSINESS_CONTACT_EMAIL || "virendachavda143@gmail.com";
   const typeLabel = CONTACT_TYPE_LABEL[type] || type || "General enquiry";
 
   logger.info("[Email] sendContactFormEmail called", { to: _maskEmail(to), type });
@@ -438,7 +438,7 @@ const sendContactFormEmail = async ({ name, email, phone, society, units, messag
  * to the website visitor rather than crash the request.
  */
 const sendDemoRequestEmail = async ({ name, email, phone, society, units, preferredSlot, notes }) => {
-  const to = process.env.BUSINESS_CONTACT_EMAIL || "abc@gmail.com";
+  const to = process.env.BUSINESS_CONTACT_EMAIL || "virendachavda143@gmail.com";
 
   logger.info("[Email] sendDemoRequestEmail called", { to: _maskEmail(to) });
   logConfigStatus();
