@@ -126,15 +126,95 @@ const _credentialBox = (rows) => `
   </table>
 `;
 
-const createTransporter = () => nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: process.env.SMTP_SECURE === "true",
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+const createTransporter = () => {
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === "true",
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+    debug: process.env.NODE_ENV !== "production",
+  });
+
+  if (process.env.NODE_ENV !== "production") {
+    transporter.on("error", (err) => {
+      console.log("[Email][LOCAL] transporter error", err && err.message ? err.message : err);
+    });
+    transporter.on("idle", () => {
+      console.log("[Email][LOCAL] transporter idle");
+    });
+  }
+
+  return transporter;
+};
+
+const _verifySmtpConnection = async (transporter) => {
+  if (process.env.NODE_ENV === "production") return;
+
+  try {
+    console.log("[Email][LOCAL] Verifying SMTP connection to", process.env.SMTP_HOST, process.env.SMTP_PORT);
+    const success = await transporter.verify();
+    console.log("[Email][LOCAL] SMTP connection verified", success);
+  } catch (err) {
+    console.log("[Email][LOCAL] SMTP verification failed", {
+      message: err.message,
+      code: err.code,
+      responseCode: err.responseCode,
+      response: err.response,
+      command: err.command,
+    });
+    throw err;
+  }
+};
+
+const _maskRecipients = (value) => {
+  if (!value) return value;
+  if (Array.isArray(value)) return value.map(_maskEmail);
+  return _maskEmail(value);
+};
+
+const _sendMailWithLocalDebug = async (label, transporter, mailOptions) => {
+  const sanitizedMailOptions = {
+    ...mailOptions,
+    from: _maskEmail(mailOptions.from),
+    to: _maskRecipients(mailOptions.to),
+    replyTo: _maskRecipients(mailOptions.replyTo),
+    cc: _maskRecipients(mailOptions.cc),
+    bcc: _maskRecipients(mailOptions.bcc),
+  };
+
+  _localDebug(`${label} — verifying SMTP`, {
+    smtpHost: process.env.SMTP_HOST,
+    smtpPort: process.env.SMTP_PORT,
+    smtpSecure: process.env.SMTP_SECURE === "true",
+  });
+  await _verifySmtpConnection(transporter);
+
+  _localDebug(`${label} — sending`, sanitizedMailOptions);
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    _localDebug(`${label} — sent`, {
+      messageId: info.messageId,
+      response: info.response,
+      accepted: info.accepted,
+      rejected: info.rejected,
+      pending: info.pending,
+    });
+    return info;
+  } catch (err) {
+    _localDebug(`${label} — failed`, {
+      message: err.message,
+      code: err.code,
+      responseCode: err.responseCode,
+      response: err.response,
+      command: err.command,
+      responseHeaders: err.responseHeaders,
+    });
+    throw err;
+  }
+};
 
 // Pulls out the fields nodemailer/SMTP errors actually carry useful info in.
 // A plain err.message is often just "Invalid login" with no context — the
@@ -148,6 +228,12 @@ const _logSendFailure = (label, err) => {
     response: err.response,
     command: err.command,
   });
+};
+
+const _localDebug = (...args) => {
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[Email][LOCAL]", ...args);
+  }
 };
 
 const sendPasswordResetOTP = async ({ to, otp }) => {
@@ -164,8 +250,7 @@ const sendPasswordResetOTP = async ({ to, otp }) => {
 
   const transporter = createTransporter();
   try {
-    logger.info("[Email] sendPasswordResetOTP — sending...", { to: _maskEmail(to) });
-    const info = await transporter.sendMail({
+    const info = await _sendMailWithLocalDebug("sendPasswordResetOTP", transporter, {
       from: process.env.EMAIL_FROM,
       to,
       subject: "Your Society App password reset OTP",
@@ -217,8 +302,7 @@ const sendSocietyApprovedEmail = async ({ to, adminName, societyName, tempPasswo
   const loginLineText = url ? `Log in here: ${url}\n` : "";
 
   try {
-    logger.info("[Email] sendSocietyApprovedEmail — sending...", { to: _maskEmail(to), societyName });
-    const info = await transporter.sendMail({
+    const info = await _sendMailWithLocalDebug("sendSocietyApprovedEmail", transporter, {
       from: process.env.EMAIL_FROM,
       to,
       subject: `Your society "${societyName}" has been approved`,
@@ -273,8 +357,7 @@ const sendApplicationRejectedEmail = async ({ to, adminName, societyName, note }
   const noteLine = note ? `\n\nReason: ${note}` : "";
 
   try {
-    logger.info("[Email] sendApplicationRejectedEmail — sending...", { to: _maskEmail(to), societyName });
-    const info = await transporter.sendMail({
+    const info = await _sendMailWithLocalDebug("sendApplicationRejectedEmail", transporter, {
       from: process.env.EMAIL_FROM,
       to,
       subject: `Update on your application for "${societyName}"`,
@@ -326,8 +409,7 @@ const sendSubscriptionExpiryEmail = async ({ to, adminName, societyName, daysLef
   const dayWord = daysLeft === 1 ? "day" : "days";
 
   try {
-    logger.info("[Email] sendSubscriptionExpiryEmail — sending...", { to: _maskEmail(to), societyName });
-    const info = await transporter.sendMail({
+    const info = await _sendMailWithLocalDebug("sendSubscriptionExpiryEmail", transporter, {
       from: process.env.EMAIL_FROM,
       to,
       subject: `Your ${plan} plan expires in ${daysLeft} ${dayWord}`,
@@ -398,8 +480,7 @@ const sendContactFormEmail = async ({ name, email, phone, society, units, messag
   detailRows.push(["Enquiry type", typeLabel]);
 
   try {
-    logger.info("[Email] sendContactFormEmail — sending...", { to: _maskEmail(to), type });
-    const info = await transporter.sendMail({
+    const info = await _sendMailWithLocalDebug("sendContactFormEmail", transporter, {
       from: process.env.EMAIL_FROM,
       to,
       replyTo: email,
@@ -459,8 +540,7 @@ const sendDemoRequestEmail = async ({ name, email, phone, society, units, prefer
   if (preferredSlot) detailRows.push(["Preferred slot", preferredSlot]);
 
   try {
-    logger.info("[Email] sendDemoRequestEmail — sending...", { to: _maskEmail(to) });
-    const info = await transporter.sendMail({
+    const info = await _sendMailWithLocalDebug("sendDemoRequestEmail", transporter, {
       from: process.env.EMAIL_FROM,
       to,
       replyTo: email,
