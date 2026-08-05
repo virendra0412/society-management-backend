@@ -151,7 +151,7 @@ const createTransporter = () => {
 };
 
 const _verifySmtpConnection = async (transporter) => {
-  if (process.env.NODE_ENV === "production") return;
+  // if (process.env.NODE_ENV === "production") return;
 
   try {
     console.log("[Email][LOCAL] Verifying SMTP connection to", process.env.SMTP_HOST, process.env.SMTP_PORT);
