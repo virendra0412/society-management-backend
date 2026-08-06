@@ -62,10 +62,10 @@ const logConfigStatus = () => {
 // nodemailer version. One HTTPS POST per send — no connection management needed.
 
 const _sendViaBrevoApi = async (label, { to, subject, html, text, replyTo }) => {
-  const defaultClient                        = SibApi.ApiClient.instance;
-  defaultClient.authentications["api-key"].apiKey = process.env.BREVO_API_KEY;
+  // @getbrevo/brevo: auth goes on the api instance, not on a shared ApiClient
+  const api    = new SibApi.TransactionalEmailsApi();
+  api.authentications["api-key"].apiKey = process.env.BREVO_API_KEY;
 
-  const api     = new SibApi.TransactionalEmailsApi();
   const message = new SibApi.SendSmtpEmail();
 
   // Parse "Display Name <address>" format if present in EMAIL_FROM
