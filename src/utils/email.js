@@ -28,7 +28,7 @@
  *   sendDemoRequestEmail
  */
 
-const SibApi   = require("@getbrevo/brevo");
+const https   = require("https");
 const AppError = require("./AppError");
 const logger   = require("./logger");
 
@@ -62,48 +62,84 @@ const logConfigStatus = () => {
 // nodemailer version. One HTTPS POST per send — no connection management needed.
 
 const _sendViaBrevoApi = async (label, { to, subject, html, text, replyTo }) => {
-  // @getbrevo/brevo: auth goes on the api instance, not on a shared ApiClient
-  const api    = new SibApi.TransactionalEmailsApi();
-  api.authentications["api-key"].apiKey = process.env.BREVO_API_KEY;
-
-  const message = new SibApi.SendSmtpEmail();
-
-  // Parse "Display Name <address>" format if present in EMAIL_FROM
-  const fromRaw   = process.env.EMAIL_FROM || "";
+  const apiKey = process.env.BREVO_API_KEY;
+  const fromRaw = process.env.EMAIL_FROM || "";
   const fromMatch = fromRaw.match(/^(.+)<(.+)>$/);
-  message.sender  = fromMatch
-    ? { name: fromMatch[1].trim(), email: fromMatch[2].trim() }
-    : { email: fromRaw.trim() };
 
-  message.to          = [{ email: to }];
-  message.subject     = subject;
-  message.htmlContent = html;
-  message.textContent = text;
-  if (replyTo) message.replyTo = { email: replyTo };
+  const payload = {
+    sender: fromMatch
+      ? { name: fromMatch[1].trim(), email: fromMatch[2].trim() }
+      : { email: fromRaw.trim() },
+    to: [{ email: to }],
+    subject,
+    htmlContent: html,
+    textContent: text,
+    ...(replyTo ? { replyTo: { email: replyTo } } : {}),
+  };
 
   logger.info(`[Email] ${label} — sending via Brevo API`, {
     to: _maskEmail(to),
     subject,
   });
 
-  try {
-    const result = await api.sendTransacEmail(message);
-    logger.info(`[Email] ${label} — sent`, {
-      to: _maskEmail(to),
-      messageId: result?.body?.messageId,
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: "api.brevo.com",
+        path: "/v3/smtp/email",
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "api-key": apiKey,
+        },
+      },
+      (res) => {
+        let responseBody = "";
+        res.on("data", (chunk) => {
+          responseBody += chunk;
+        });
+        res.on("end", () => {
+          let parsedBody = {};
+          try {
+            parsedBody = responseBody ? JSON.parse(responseBody) : {};
+          } catch (parseErr) {
+            return reject(parseErr);
+          }
+
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            logger.info(`[Email] ${label} — sent`, {
+              to: _maskEmail(to),
+              messageId: parsedBody?.messageId,
+            });
+            resolve(parsedBody);
+            return;
+          }
+
+          const err = new Error(`Brevo API request failed with ${res.statusCode}`);
+          err.status = res.statusCode;
+          err.body = parsedBody;
+          logger.error(`[Email] ${label} — send failed`, {
+            status: err.status,
+            message: err.message,
+            body: err.body,
+          });
+          reject(err);
+        });
+      }
+    );
+
+    req.on("error", (err) => {
+      logger.error(`[Email] ${label} — send failed`, {
+        status: err.status || 0,
+        message: err.message,
+      });
+      reject(err);
     });
-    return result;
-  } catch (err) {
-    // Brevo SDK wraps the HTTP error — pull out the useful parts
-    const status  = err?.status  || err?.response?.status;
-    const body    = err?.body    || err?.response?.body;
-    logger.error(`[Email] ${label} — send failed`, {
-      status,
-      message: err.message,
-      body,
-    });
-    throw err;
-  }
+
+    req.write(JSON.stringify(payload));
+    req.end();
+  });
 };
 
 // ─── Branded HTML email layout ─────────────────────────────────────────────────
