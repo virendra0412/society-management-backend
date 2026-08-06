@@ -58,7 +58,7 @@ const logConfigStatus = () => {
 };
 
 // ─── Brevo HTTP API sender ─────────────────────────────────────────────────────
-// Single function that replaces createTransporter() + sendMail() from the old
+// Single function that replaces  createTransporter() + sendMail() from the old
 // nodemailer version. One HTTPS POST per send — no connection management needed.
 
 const _sendViaBrevoApi = async (label, { to, subject, html, text, replyTo }) => {
